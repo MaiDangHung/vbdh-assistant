@@ -255,15 +255,31 @@
 
   /**
    * Tạo cache key duy nhất
+   * Bỏ .signed trong tên file vì mỗi đơn vị ký số thêm 1 cái .signed
    */
   function generateCacheKey(data) {
+    const normalizedFiles = (data.files || [])
+      .map(f => normalizeFileName(f.tenTep || ''))
+      .sort()
+      .join(',');
+
     const parts = [
       data.soKyHieu || '',
       data.ngayBanHanh || '',
       data.coQuanBanHanh || '',
-      (data.files || []).map(f => f.tenTep || '').sort().join(','),
+      normalizedFiles,
     ];
     return parts.join('|||');
+  }
+
+  /**
+   * Normalize tên file: bỏ tất cả .signed
+   * VD: "3731.UBND.DTDT.10.05.2026.signed.signed.signed.signed.pdf"
+   *   → "3731.UBND.DTDT.10.05.2026.pdf"
+   */
+  function normalizeFileName(name) {
+    // Bỏ tất cả .signed (có thể nhiều cái liên tiếp)
+    return name.replace(/(\.signed)+/gi, '');
   }
 
   /**
