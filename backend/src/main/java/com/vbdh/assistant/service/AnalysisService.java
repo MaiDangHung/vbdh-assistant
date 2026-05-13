@@ -14,7 +14,6 @@ import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -30,68 +29,77 @@ public class AnalysisService {
     private final ObjectMapper objectMapper;
 
     /**
-     * Xử lý email: check cache → AI xử lý → lưu kết quả
+     * Xử lý văn bản: check cache → AI xử lý → lưu kết quả
+     *
+     * PERFORMANCE: Cache-first, chỉ gọi AI khi cần thiết
+     * SECURITY: SHA256 hash cache key
      */
     public AnalyzeResponse analyze(AnalyzeRequest request) {
         long startTime = System.currentTimeMillis();
 
-        // Tạo cache key nếu chưa có
+        // Tạo SHA256 cache key
         String cacheKey = request.getCacheKey() != null
-                ? request.getCacheKey()
-                : generateCacheKey(request);
+                ? sha256(request.getCacheKey())
+                : sha256(generateCacheKey(request));
 
-        // Tạo SHA256 hash cho cache key
-        String hashedKey = sha256(cacheKey);
+        log.info("Analyze: soKyHieu='{}', coQuanBanHanh='{}', cacheKey={}, files={}",
+                request.getSoKyHieu(), request.getCoQuanBanHanh(), cacheKey,
+                request.getFiles() != null ? request.getFiles().size() : 0);
 
-        log.info("Analyzing email: subject='{}', cacheKey={}", request.getSubject(), hashedKey);
-
-        // CHECK CACHE trước khi xử lý
+        // ============ CHECK CACHE TRƯỚC ============
         if (!request.isForceReprocess()) {
-            var cached = analysisRepository.findByCacheKey(hashedKey);
+            var cached = analysisRepository.findByCacheKey(cacheKey);
             if (cached.isPresent()) {
                 EmailAnalysis existing = cached.get();
-                log.info("Cache hit for key={}, processingTimeMs={}", hashedKey, existing.getProcessingTimeMs());
+                log.info("Cache HIT: key={}, age={}ms", cacheKey,
+                        System.currentTimeMillis() - existing.getCreatedAt().getNano() / 1_000_000);
                 return buildResponse(existing, true, System.currentTimeMillis() - startTime);
             }
         } else {
             // Force reprocess - xóa cache cũ
-            analysisRepository.findByCacheKey(hashedKey).ifPresent(existing -> {
+            analysisRepository.findByCacheKey(cacheKey).ifPresent(existing -> {
                 analysisRepository.delete(existing);
-                log.info("Deleted old cache for key={}", hashedKey);
+                log.info("Cache CLEARED: key={}", cacheKey);
             });
         }
 
-        // XỬ LÝ MỚI
-        // 1. Gọi AI Service để tóm tắt + trích xuất nhiệm vụ
+        // ============ XỬ LÝ MỚI ============
+
+        // 1. Chuẩn bị text để gửi AI
         String combinedText = buildCombinedText(request);
+
+        // 2. Gọi AI Service (summarize + extract tasks)
         AiServiceClient.AiResult aiResult = aiServiceClient.analyze(combinedText);
 
-        // 2. Gợi ý phòng ban
+        // 3. Gợi ý phòng ban
         List<AnalyzeResponse.DepartmentSuggestion> deptSuggestions =
                 departmentMatcher.suggestDepartments(combinedText);
 
-        // 3. Lưu vào database (cache)
+        // 4. Lưu vào cache
         long processingTime = System.currentTimeMillis() - startTime;
 
         EmailAnalysis analysis = EmailAnalysis.builder()
-                .cacheKey(hashedKey)
+                .cacheKey(cacheKey)
                 .subject(request.getSubject())
-                .sender(request.getSender())
-                .sentDate(request.getSentDate())
-                .emailBody(request.getBody())
+                .sender(request.getCoQuanBanHanh())
+                .sentDate(request.getNgayBanHanh())
+                .emailBody(truncate(request.getBody(), 5000))
+                .attachmentNames(request.getFiles() != null
+                        ? request.getFiles().stream()
+                        .map(AnalyzeRequest.FileInfo::getName)
+                        .collect(Collectors.joining(","))
+                        : "")
                 .summary(aiResult.getSummary())
                 .tasks(toJson(aiResult.getTasks()))
-                .departments(toJson(deptSuggestions.stream()
-                        .map(d -> new java.util.AbstractMap.SimpleEntry<>(d.getName(), d.getScore()))
-                        .collect(Collectors.toList())))
+                .departments(toJsonDept(deptSuggestions))
                 .processingTimeMs(processingTime)
                 .build();
 
         analysisRepository.save(analysis);
-        log.info("Saved analysis: key={}, processingTimeMs={}", hashedKey, processingTime);
+        log.info("SAVED analysis: key={}, time={}ms, tasks={}", cacheKey, processingTime, aiResult.getTasks().size());
 
         return AnalyzeResponse.builder()
-                .cacheKey(hashedKey)
+                .cacheKey(cacheKey)
                 .summary(aiResult.getSummary())
                 .tasks(aiResult.getTasks())
                 .departments(deptSuggestions)
@@ -101,52 +109,76 @@ public class AnalysisService {
     }
 
     /**
-     * Tạo cache key từ thông tin email
+     * Kết hợp text: trích yếu + thông tin metadata
      */
+    private String buildCombinedText(AnalyzeRequest request) {
+        StringBuilder sb = new StringBuilder();
+
+        if (request.getSoKyHieu() != null && !request.getSoKyHieu().isBlank()) {
+            sb.append("Số hiệu: ").append(request.getSoKyHieu()).append("\n");
+        }
+        if (request.getCoQuanBanHanh() != null && !request.getCoQuanBanHanh().isBlank()) {
+            sb.append("Cơ quan ban hành: ").append(request.getCoQuanBanHanh()).append("\n");
+        }
+        if (request.getLoaiVanBan() != null && !request.getLoaiVanBan().isBlank()) {
+            sb.append("Loại văn bản: ").append(request.getLoaiVanBan()).append("\n");
+        }
+        if (request.getNgayBanHanh() != null && !request.getNgayBanHanh().isBlank()) {
+            sb.append("Ngày ban hành: ").append(request.getNgayBanHanh()).append("\n");
+        }
+
+        sb.append("\n");
+
+        if (request.getBody() != null && !request.getBody().isBlank()) {
+            sb.append("Nội dung:\n").append(request.getBody());
+        }
+
+        return sb.toString();
+    }
+
     private String generateCacheKey(AnalyzeRequest request) {
         StringBuilder sb = new StringBuilder();
-        sb.append(request.getSubject()).append("|||");
-        sb.append(request.getSender()).append("|||");
-        sb.append(request.getSentDate()).append("|||");
-        if (request.getAttachments() != null) {
-            sb.append(request.getAttachments().stream()
-                    .map(AnalyzeRequest.AttachmentInfo::getName)
+        sb.append(request.getSoKyHieu()).append("|||");
+        sb.append(request.getNgayBanHanh()).append("|||");
+        sb.append(request.getCoQuanBanHanh()).append("|||");
+        if (request.getFiles() != null) {
+            sb.append(request.getFiles().stream()
+                    .map(AnalyzeRequest.FileInfo::getName)
                     .sorted()
                     .collect(Collectors.joining(",")));
         }
         return sb.toString();
     }
 
-    /**
-     * SHA256 hash
-     */
     private String sha256(String input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException e) {
+        } catch (Exception e) {
             throw new RuntimeException("SHA-256 not available", e);
         }
     }
 
-    /**
-     * Kết hợp text từ email body + subject
-     */
-    private String buildCombinedText(AnalyzeRequest request) {
-        StringBuilder sb = new StringBuilder();
-        if (request.getSubject() != null && !request.getSubject().isBlank()) {
-            sb.append("Tiêu đề: ").append(request.getSubject()).append("\n\n");
-        }
-        if (request.getBody() != null && !request.getBody().isBlank()) {
-            sb.append("Nội dung:\n").append(request.getBody());
-        }
-        return sb.toString();
+    private String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() > max ? s.substring(0, max) + "..." : s;
     }
 
     private String toJson(Object obj) {
         try {
             return objectMapper.writeValueAsString(obj);
+        } catch (JsonProcessingException e) {
+            return "[]";
+        }
+    }
+
+    private String toJsonDept(List<AnalyzeResponse.DepartmentSuggestion> depts) {
+        try {
+            List<Object[]> simplified = depts.stream()
+                    .map(d -> new Object[]{d.getName(), d.getScore()})
+                    .collect(Collectors.toList());
+            return objectMapper.writeValueAsString(simplified);
         } catch (JsonProcessingException e) {
             return "[]";
         }
@@ -170,12 +202,11 @@ public class AnalysisService {
     }
 
     private List<AnalyzeResponse.DepartmentSuggestion> parseDepartments(String json) throws JsonProcessingException {
-        List<java.util.AbstractMap.SimpleEntry<String, Integer>> raw =
-                objectMapper.readValue(json, new TypeReference<>() {});
+        List<List<Object>> raw = objectMapper.readValue(json, new TypeReference<>() {});
         return raw.stream()
-                .map(e -> AnalyzeResponse.DepartmentSuggestion.builder()
-                        .name(e.getKey())
-                        .score(e.getValue())
+                .map(arr -> AnalyzeResponse.DepartmentSuggestion.builder()
+                        .name((String) arr.get(0))
+                        .score(((Number) arr.get(1)).intValue())
                         .build())
                 .collect(Collectors.toList());
     }

@@ -2,16 +2,13 @@
   "manifest_version": 3,
   "name": "VBDH Assistant - Trợ lý văn bản điều hành",
   "version": "1.0.0",
-  "description": "Tổng hợp nội dung văn bản, trích xuất nhiệm vụ và gợi ý phân công phòng ban từ email Outlook",
+  "description": "Tổng hợp nội dung văn bản, trích xuất nhiệm vụ và gợi ý phân công phòng ban từ hệ thống QLVBDH",
   "permissions": [
     "activeTab",
-    "storage",
-    "downloads"
+    "storage"
   ],
   "host_permissions": [
-    "https://outlook.office.com/*",
-    "https://outlook.office365.com/*",
-    "https://outlook.live.com/*"
+    "https://qlvbdh.danang.gov.vn/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -26,15 +23,10 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "background": {
-    "service_worker": "background.js"
-  },
   "content_scripts": [
     {
       "matches": [
-        "https://outlook.office.com/*",
-        "https://outlook.office365.com/*",
-        "https://outlook.live.com/*"
+        "https://qlvbdh.danang.gov.vn/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
