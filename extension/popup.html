@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VBDH Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>📋 Trợ lý văn bản điều hành</h1>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="section hidden">
+      <div class="spinner"></div>
+      <p>Đang xử lý văn bản...</p>
+    </div>
+
+    <!-- Error -->
+    <div id="error" class="section hidden">
+      <div class="error-icon">⚠️</div>
+      <p id="error-message">Có lỗi xảy ra</p>
+      <button id="btn-retry" class="btn btn-primary">Thử lại</button>
+    </div>
+
+    <!-- Results -->
+    <div id="results" class="section hidden">
+      <!-- Email info -->
+      <div class="email-info">
+        <div class="email-subject" id="email-subject"></div>
+        <div class="email-meta">
+          <span id="email-sender"></span>
+          <span id="email-date"></span>
+        </div>
+      </div>
+
+      <!-- Cache indicator -->
+      <div id="cache-badge" class="cache-badge hidden">
+        ⚡ Dữ liệu cache
+      </div>
+
+      <!-- Summary -->
+      <div class="card">
+        <div class="card-title">📝 Tóm tắt nội dung</div>
+        <div class="card-content" id="summary"></div>
+      </div>
+
+      <!-- Tasks -->
+      <div class="card">
+        <div class="card-title">✅ Nhiệm vụ</div>
+        <div class="card-content" id="tasks">
+          <ul id="task-list"></ul>
+        </div>
+      </div>
+
+      <!-- Department suggestions -->
+      <div class="card">
+        <div class="card-title">🏢 Phòng ban đề xuất</div>
+        <div class="card-content" id="departments">
+          <ul id="dept-list"></ul>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions">
+        <button id="btn-reprocess" class="btn btn-secondary">🔄 Xử lý lại</button>
+        <button id="btn-save" class="btn btn-primary">💾 Lưu</button>
+      </div>
+    </div>
+
+    <!-- No email -->
+    <div id="no-email" class="section hidden">
+      <p>📭 Vui lòng mở một email trên Outlook trước khi sử dụng extension.</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

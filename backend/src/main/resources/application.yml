@@ -1,0 +1,29 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/vbdh_assistant
+    username: vbdh
+    password: vbdh_secret
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+# AI Service
+ai-service:
+  url: http://localhost:8000
+  timeout: 120
+
+# CORS cho extension
+cors:
+  allowed-origins: chrome-extension://*,http://localhost:*
+
+logging:
+  level:
+    com.vbdh.assistant: DEBUG
