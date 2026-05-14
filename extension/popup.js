@@ -3,6 +3,8 @@
  * Popup chỉ dùng để settings + nút mở modal trên trang
  */
 
+const DEFAULT_API_URL = 'https://tbklhoatien.danangsite.com.vn/api/v1/ext';
+
 const state = { config: null };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -12,7 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-settings').addEventListener('click', showSettings);
   document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
 
-  if (!state.config.apiUrl || !state.config.apiKey) {
+  if (!state.config.apiKey) {
     showSettings();
   }
 });
@@ -20,7 +22,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 function loadConfig() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['vbdh_api_url', 'vbdh_api_key'], (result) => {
-      resolve({ apiUrl: result.vbdh_api_url || '', apiKey: result.vbdh_api_key || '' });
+      resolve({
+        apiUrl: result.vbdh_api_url || DEFAULT_API_URL,
+        apiKey: result.vbdh_api_key || '',
+      });
     });
   });
 }
@@ -51,16 +56,16 @@ async function openModal() {
 }
 
 function showSettings() {
-  document.getElementById('setting-api-url').value = state.config.apiUrl || '';
+  document.getElementById('setting-api-url').value = state.config.apiUrl || DEFAULT_API_URL;
   document.getElementById('setting-api-key').value = state.config.apiKey || '';
   document.getElementById('settings').classList.remove('hidden');
   document.getElementById('main-view').classList.add('hidden');
 }
 
 async function saveSettings() {
-  const apiUrl = document.getElementById('setting-api-url').value.trim();
+  const apiUrl = document.getElementById('setting-api-url').value.trim() || DEFAULT_API_URL;
   const apiKey = document.getElementById('setting-api-key').value.trim();
-  if (!apiUrl || !apiKey) { alert('Nhập đầy đủ URL và API Key.'); return; }
+  if (!apiKey) { alert('Nhập API Key.'); return; }
 
   const btn = document.getElementById('btn-save-settings');
   btn.textContent = '⏳ Kiểm tra...';

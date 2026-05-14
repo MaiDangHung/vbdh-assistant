@@ -32,7 +32,7 @@ function getConfig() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['vbdh_api_url', 'vbdh_api_key'], (result) => {
       resolve({
-        apiUrl: result.vbdh_api_url || '',
+        apiUrl: result.vbdh_api_url || 'https://tbklhoatien.danangsite.com.vn/api/v1/ext',
         apiKey: result.vbdh_api_key || '',
       });
     });
