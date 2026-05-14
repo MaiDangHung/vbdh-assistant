@@ -205,7 +205,39 @@
     }
 
     try {
-      // Fetch all files
+      // Check cache trước — tránh upload lại nếu đã xử lý
+      const cacheKey = generateCacheKey(doc);
+      statusEl.textContent = '⏳ Kiểm tra cache...';
+      
+      let cachedResult = null;
+      try {
+        const cacheRes = await fetch(`${apiUrl}/documents/check-cache`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
+          body: JSON.stringify({ cacheKey }),
+        });
+        if (cacheRes.ok) {
+          const cacheJson = await cacheRes.json();
+          if (cacheJson.data && cacheJson.data.exists) {
+            cachedResult = cacheJson.data;
+          }
+        }
+      } catch (e) { /* ignore cache check errors */ }
+
+      if (cachedResult) {
+        // Đã có trong cache → hiển thị kết quả luôn, không upload lại
+        statusEl.className = 'vbdh-status vbdh-status-done';
+        statusEl.textContent = '✅ Cache';
+        const displayData = {
+          extractionResult: cachedResult.extractionResult || {},
+          status: cachedResult.status || 'completed',
+          _cached: true
+        };
+        displayResult(displayData, statusEl, resultEl, cachedResult.documentId, apiUrl, apiKey);
+        return;
+      }
+
+      // Chưa có → fetch files và upload như cũ
       const fileBlobs = [];
       for (let i = 0; i < doc.files.length; i++) {
         if (i > 0) await sleep(1000);
@@ -226,6 +258,7 @@
       const cacheKey = generateCacheKey(doc);
       const formData = new FormData();
       formData.append('metadata', JSON.stringify({ ...doc, cacheKey }));
+      formData.append('cacheKey', cacheKey);
       fileBlobs.forEach(f => formData.append('files', f.blob, f.name));
 
       const uploadRes = await fetch(`${apiUrl}/documents/upload`, {
