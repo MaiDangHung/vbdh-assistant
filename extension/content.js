@@ -15,7 +15,13 @@
   const MAX_FILE_SIZE = 20 * 1024 * 1024;
   const FETCH_TIMEOUT_MS = 30000;
 
+  // Ping handler — kiểm tra content script đã inject chưa
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'ping') {
+      sendResponse({ pong: true });
+      return false;
+    }
+
     if (request.action === 'extractData') {
       const reactData = extractReactData();
       if (!reactData) {

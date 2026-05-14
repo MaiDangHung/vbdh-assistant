@@ -5,7 +5,8 @@
   "description": "Tổng hợp nội dung văn bản, trích xuất nhiệm vụ và gợi ý phân công phòng ban từ hệ thống QLVBDH",
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "scripting"
   ],
   "host_permissions": [
     "https://qlvbdh.danang.gov.vn/*"
