@@ -314,7 +314,8 @@ function extractDocumentData() {
       let current = fiber.child?.child?.child;
       console.log('[VBDH-EXTRACT] Child depth 2:', current ? 'EXISTS' : 'NULL');
 
-      // Traverse siblings để tìm files
+      // Traverse siblings to find files
+      // Must traverse sibling chain, NOT child (child goes deeper into tree)
       let maxSearch = 50;
       let sibling = current;
       let searchedCount = 0;
@@ -323,10 +324,22 @@ function extractDocumentData() {
         const p = sibling.memoizedProps;
         if (p && Array.isArray(p.files) && p.files.length > 0 && p.files[0].tenTep) {
           filesData = p.files;
-          console.log('[VBDH-EXTRACT] Files FOUND at sibling', searchedCount, ':', p.files.map(f => f.tenTep));
+          console.log('[VBDH-EXTRACT] Files FOUND at sibling', searchedCount);
           break;
         }
-        sibling = sibling.sibling || sibling.child;
+        // Traverse: prefer sibling (same level), fallback to child
+        if (sibling.sibling) {
+          sibling = sibling.sibling;
+        } else if (sibling.child) {
+          sibling = sibling.child;
+        } else {
+          // Back up to parent and find next sibling
+          let parent = sibling.return;
+          while (parent && !parent.sibling) {
+            parent = parent.return;
+          }
+          sibling = parent?.sibling;
+        }
       }
       if (filesData.length === 0) {
         console.log('[VBDH-EXTRACT] No files found after searching', searchedCount, 'siblings');
