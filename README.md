@@ -1,61 +1,55 @@
 # VBDH Assistant
 
-**Trợ lý xử lý văn bản điều hành từ Outlook**
+**Trợ lý xử lý văn bản điều hành từ hệ thống QLVBDH**
 
-Hệ thống hỗ trợ tổng hợp nội dung văn bản, trích xuất nhiệm vụ và gợi ý phân công phòng ban từ email Outlook Web.
+Chrome Extension đọc văn bản từ hệ thống QLVBDH, gọi API của hệ thống [tbkl-hoatien](https://github.com/MaiDangHung/tbkl-banhanh) để xử lý AI (tóm tắt, trích xuất nhiệm vụ, gợi ý phòng ban).
 
 ## Kiến trúc
 
 ```
-Outlook Web (Browser)
+Hệ thống QLVBDH (qlvbdh.danang.gov.vn)
     │
-    ├── Chrome Extension (Manifest V3)
-    │   ├── Content Script: Thu thập nội dung email + file đính kèm
-    │   └── Popup: Hiển thị kết quả tóm tắt, nhiệm vụ, phòng ban
-    │
+    │ Extension đọc React state + fetch files
     ▼
-Backend API (Spring Boot)
-    ├── Kiểm tra cache (tránh xử lý trùng)
-    ├── Nhận & xử lý file đính kèm
-    └── Gọi AI Service
+Chrome Extension (Manifest V3)
     │
+    │ API Key authentication
     ▼
-AI Service (Python FastAPI)
-    ├── Trích xuất text (PDF, DOCX)
-    ├── OCR (file scan)
-    ├── Tóm tắt nội dung
-    ├── Trích xuất nhiệm vụ
-    └── Gợi ý phòng ban
+tbkl-hoatien Backend API
+    ├── POST /api/v1/ext/documents/upload     → Upload file
+    ├── POST /api/v1/ext/documents/{id}/extract → Trích xuất AI
+    ├── GET  /api/v1/ext/documents/{id}/result  → Lấy kết quả (cache)
+    └── POST /api/v1/ext/documents/{id}/re-extract → Xử lý lại
 ```
 
 ## Cài đặt
 
+### 1. Cài Extension
 ```bash
 # Clone
 git clone git@github.com:MaiDangHung/vbdh-assistant.git
 
-# Chạy toàn bộ services
-docker-compose up -d
+# Cài lên Chrome
+1. Mở chrome://extensions/
+2. Bật "Chế độ dành cho nhà phát triển"
+3. Click "Tải tiện ích đã giải nén" → chọn thư mục extension/
 ```
 
-## Cấu trúc thư mục
+### 2. Cấu hình
+- Mở `extension/popup.js` → chỉnh `TBKL_API_BASE` nếu cần
+- API Key mặc định: `vbdh-ext-sk-2026-hoatien-secure`
 
-```
-vbdh-assistant/
-├── extension/          # Chrome Extension
-├── backend/            # Spring Boot API
-├── ai-service/         # Python FastAPI
-├── docker-compose.yml
-└── README.md
-```
+## Sử dụng
+
+1. Mở https://qlvbdh.danang.gov.vn → đăng nhập
+2. Click vào 1 văn bản → chi tiết xổ ra
+3. Click Extension icon → Xem tóm tắt + nhiệm vụ + phòng ban
+4. Click "Lưu" hoặc "Xử lý lại"
 
 ## Tech Stack
 
 | Thành phần | Công nghệ |
 |-----------|-----------|
-| Extension | Chrome Manifest V3, TypeScript |
-| Backend | Java 17, Spring Boot 3.3, PostgreSQL |
-| AI Service | Python 3.12, FastAPI |
-| Database | PostgreSQL |
-| File Storage | MinIO |
-```
+| Extension | Chrome Manifest V3, Vanilla JS |
+| API Backend | tbkl-hoatien (Spring Boot) |
+| AI | GLM model (qua tbkl-hoatien AI Service) |

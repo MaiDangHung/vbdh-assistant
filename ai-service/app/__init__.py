@@ -1,1 +1,0 @@
-"""VBDH Assistant - AI Service"""
