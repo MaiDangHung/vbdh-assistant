@@ -291,40 +291,29 @@
 
     if (isCached) html += '<div class="vbdh-cache-badge">⚡ Dữ liệu cache</div>';
 
-    // Summary
-    html += '<div class="vbdh-card"><div class="vbdh-card-title">📝 Tóm tắt nội dung</div><div class="vbdh-card-body">' + (summary || 'Không có tóm tắt') + '</div></div>';
+    // Reprocess button — ở trên cùng
+    html += `<div class="vbdh-top-actions"><button class="vbdh-btn-reprocess" onclick="window.__vbdhReprocess['${documentId}'].action()">🔄 Xử lý lại</button></div>`;
 
-    // Tasks table
-    html += '<div class="vbdh-card"><div class="vbdh-card-title">✅ Nhiệm vụ (' + tasks.length + ')</div><div class="vbdh-card-body">';
-    if (tasks.length > 0) {
-      html += '<table class="vbdh-table"><thead><tr><th>STT</th><th>Nhiệm vụ</th></tr></thead><tbody>';
-      tasks.forEach((t, i) => {
-        const text = typeof t === 'string' ? t : t.title || JSON.stringify(t);
-        html += `<tr><td>${i + 1}</td><td>${text}</td></tr>`;
-      });
+    // Summary — 1 dòng riêng
+    html += '<div class="vbdh-summary-line"><b>📝 Tóm tắt:</b> ' + (summary || 'Không có tóm tắt') + '</div>';
+
+    // Combined table: STT | Nhiệm vụ | Phòng ban đề xuất
+    const maxRows = Math.max(tasks.length, departments.length, 1);
+    html += '<div class="vbdh-card"><div class="vbdh-card-title">📋 Nhiệm vụ & Phòng ban đề xuất</div><div class="vbdh-card-body">';
+    if (tasks.length > 0 || departments.length > 0) {
+      html += '<table class="vbdh-table"><thead><tr><th style="width:40px">STT</th><th>Nhiệm vụ</th><th>Phòng ban đề xuất</th></tr></thead><tbody>';
+      for (let i = 0; i < maxRows; i++) {
+        const task = tasks[i] ? (typeof tasks[i] === 'string' ? tasks[i] : tasks[i].title || JSON.stringify(tasks[i])) : '';
+        const dept = departments[i] ? (typeof departments[i] === 'string' ? departments[i] : departments[i].name || '') : '';
+        const score = departments[i] && departments[i].score ? departments[i].score : '';
+        const scoreHtml = score !== '' ? `<div class="vbdh-dept-cell"><span>${dept}</span><div class="vbdh-score-bar"><div class="vbdh-score-fill" style="width:${score}%"></div></div><span class="vbdh-score-text">${score}%</span></div>` : (dept ? `<span>${dept}</span>` : '');
+        html += `<tr><td>${i + 1}</td><td>${task}</td><td>${scoreHtml}</td></tr>`;
+      }
       html += '</tbody></table>';
     } else {
       html += '<p>Không có nhiệm vụ</p>';
     }
     html += '</div></div>';
-
-    // Departments table
-    html += '<div class="vbdh-card"><div class="vbdh-card-title">🏢 Phòng ban đề xuất</div><div class="vbdh-card-body">';
-    if (departments.length > 0) {
-      html += '<table class="vbdh-table"><thead><tr><th>Phòng ban</th><th>Mức độ phù hợp</th></tr></thead><tbody>';
-      departments.forEach(d => {
-        const name = typeof d === 'string' ? d : d.name || '';
-        const score = d.score || 0;
-        html += `<tr><td>${name}</td><td><div class="vbdh-score-bar"><div class="vbdh-score-fill" style="width:${score}%"></div></div><span>${score}%</span></td></tr>`;
-      });
-      html += '</tbody></table>';
-    } else {
-      html += '<p>Không có gợi ý</p>';
-    }
-    html += '</div></div>';
-
-    // Reprocess button
-    html += `<button class="vbdh-btn-reprocess" onclick="window.__vbdhReprocess['${documentId}'].action()">🔄 Xử lý lại</button>`;
 
     // Store for reprocess
     window.__vbdhReprocess = window.__vbdhReprocess || {};
@@ -414,6 +403,10 @@
       .vbdh-score-bar { display:inline-block; width:120px; height:8px; background:#e0e0e0; border-radius:4px; margin-right:8px; vertical-align:middle; }
       .vbdh-score-fill { height:100%; border-radius:4px; background:linear-gradient(90deg,#4caf50,#1a73e8); }
       .vbdh-cache-badge { display:inline-block; background:#e8f5e9; color:#2e7d32; padding:4px 12px; border-radius:12px; font-size:12px; margin-bottom:8px; }
+      .vbdh-top-actions { margin-bottom:12px; }
+      .vbdh-summary-line { font-size:13px; color:#333; line-height:1.6; padding:8px 0; margin-bottom:12px; border-bottom:1px solid #f0f0f0; }
+      .vbdh-dept-cell { display:flex; align-items:center; gap:6px; }
+      .vbdh-score-text { font-size:12px; color:#666; min-width:32px; }
       .vbdh-btn-reprocess { padding:8px 20px; background:#1a73e8; color:white; border:none; border-radius:6px; cursor:pointer; font-size:13px; margin-top:8px; }
       .vbdh-btn-reprocess:hover { background:#1557b0; }
       .vbdh-btn-reprocess:disabled { background:#ccc; cursor:not-allowed; }
