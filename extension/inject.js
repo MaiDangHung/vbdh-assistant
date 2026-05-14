@@ -255,7 +255,6 @@
 
       // Upload
       statusEl.textContent = '⏳ Đang upload...';
-      const cacheKey = generateCacheKey(doc);
       const formData = new FormData();
       formData.append('metadata', JSON.stringify({ ...doc, cacheKey }));
       formData.append('cacheKey', cacheKey);
