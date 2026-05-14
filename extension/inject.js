@@ -25,7 +25,6 @@
       return;
     }
 
-    // Tạo modal lần đầu
     const modal = document.createElement('div');
     modal.id = 'vbdh-assistant-modal';
     modal.innerHTML = `
@@ -44,18 +43,15 @@
       </div>
     `;
 
-    // Inject CSS
     const style = document.createElement('style');
     style.textContent = getVbdhCSS();
     modal.appendChild(style);
 
     document.body.appendChild(modal);
 
-    // Close handlers
     modal.querySelector('.vbdh-close').onclick = () => modal.style.display = 'none';
     modal.querySelector('.vbdh-overlay').onclick = () => modal.style.display = 'none';
 
-    // Start processing
     window.__vbdhRefresh = () => processAllDocuments(modal);
     window.__vbdhRefresh();
   }
@@ -74,14 +70,15 @@
       return;
     }
 
+    // Build HTML: mỗi văn bản là 1 accordion, bên trong có sub-accordion cho từng file
     let html = '';
     for (let i = 0; i < docs.length; i++) {
       html += buildDocAccordion(docs[i], i);
     }
     body.innerHTML = html;
 
-    // Bind accordion
-    body.querySelectorAll('.vbdh-accordion-header').forEach(header => {
+    // Bind doc-level accordion
+    body.querySelectorAll('.vbdh-doc-header').forEach(header => {
       header.onclick = () => {
         const content = header.nextElementSibling;
         const isOpen = content.style.display !== 'none';
@@ -90,9 +87,21 @@
       };
     });
 
-    // Process each doc
+    // Bind file-level accordion
+    body.querySelectorAll('.vbdh-file-header').forEach(header => {
+      header.onclick = () => {
+        const content = header.nextElementSibling;
+        const isOpen = content.style.display !== 'none';
+        content.style.display = isOpen ? 'none' : 'block';
+        header.querySelector('.vbdh-arrow').textContent = isOpen ? '▶' : '▼';
+      };
+    });
+
+    // Process each file in each doc
     for (let i = 0; i < docs.length; i++) {
-      processSingleDoc(docs[i], i, modal);
+      for (let j = 0; j < docs[i].files.length; j++) {
+        processSingleFile(docs[i], docs[i].files[j], i, j);
+      }
     }
   }
 
@@ -118,7 +127,7 @@
         if (files.length > 0) {
           docs.push({
             soKyHieu: info['Số, ký hiệu VB'] || '',
-            trichYieu: info['Trích yếu'] || '',
+            trichYeu: info['Trích yếu'] || '',
             coQuanBanHanh: info['Cơ quan ban hành'] || '',
             ngayBanHanh: info['Ngày ban hành'] || '',
             loaiVanBan: info['Loại văn bản'] || '',
@@ -159,40 +168,58 @@
 
   // ===== BUILD ACCORDION HTML =====
 
-  function buildDocAccordion(doc, index) {
-    const title = doc.trichYieu || doc.soKyHieu || 'Văn bản ' + (index + 1);
+  function buildDocAccordion(doc, docIndex) {
+    const title = doc.trichYeu || doc.soKyHieu || 'Văn bản ' + (docIndex + 1);
     const shortTitle = title.length > 80 ? title.substring(0, 80) + '...' : title;
+
+    let filesHtml = '';
+    for (let j = 0; j < doc.files.length; j++) {
+      const f = doc.files[j];
+      const shortName = f.name.length > 50 ? f.name.substring(0, 50) + '...' : f.name;
+      filesHtml += `
+        <div class="vbdh-file-item">
+          <div class="vbdh-file-header">
+            <span class="vbdh-arrow">▶</span>
+            <span class="vbdh-file-icon">📄</span>
+            <span class="vbdh-file-name">${shortName}</span>
+            <span class="vbdh-status vbdh-status-pending" id="vbdh-status-${docIndex}-${j}">⏳ Chờ xử lý</span>
+          </div>
+          <div class="vbdh-file-content" style="display:none" id="vbdh-content-${docIndex}-${j}">
+            <div id="vbdh-result-${docIndex}-${j}" class="vbdh-result-loading">
+              <div class="vbdh-spinner"></div>
+              <p>Đang xử lý...</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     return `
-      <div class="vbdh-accordion" data-index="${index}">
-        <div class="vbdh-accordion-header">
+      <div class="vbdh-doc-accordion" data-doc="${docIndex}">
+        <div class="vbdh-doc-header">
           <span class="vbdh-arrow">▶</span>
-          <div class="vbdh-accordion-title">
-            <strong>${doc.soKyHieu}</strong> - ${shortTitle}
+          <div class="vbdh-doc-title">
+            <strong>${doc.soKyHieu}</strong> — ${shortTitle}
             <span class="vbdh-file-count">${doc.files.length} file(s)</span>
           </div>
-          <span class="vbdh-status vbdh-status-pending" id="vbdh-status-${index}">⏳ Chờ xử lý</span>
         </div>
-        <div class="vbdh-accordion-content" style="display:none" id="vbdh-content-${index}">
+        <div class="vbdh-doc-content" style="display:none">
           <div class="vbdh-doc-info">
-            <span><b>Cơ quan:</b> ${doc.coQuanBanHanh}</span>
-            <span><b>Ngày:</b> ${doc.ngayBanHanh}</span>
-            <span><b>Loại:</b> ${doc.loaiVanBan}</span>
-            <span><b>Files:</b> ${doc.files.map(f => f.name).join(', ')}</span>
+            <div><b>Cơ quan:</b> ${doc.coQuanBanHanh}</div>
+            <div><b>Ngày:</b> ${doc.ngayBanHanh}</div>
+            <div><b>Loại:</b> ${doc.loaiVanBan}</div>
           </div>
-          <div id="vbdh-result-${index}" class="vbdh-result-loading">
-            <div class="vbdh-spinner"></div>
-            <p>Đang xử lý...</p>
-          </div>
+          ${filesHtml}
         </div>
       </div>
     `;
   }
 
-  // ===== PROCESS SINGLE DOC =====
+  // ===== PROCESS SINGLE FILE =====
 
-  async function processSingleDoc(doc, index, modal) {
-    const statusEl = document.getElementById(`vbdh-status-${index}`);
-    const resultEl = document.getElementById(`vbdh-result-${index}`);
+  async function processSingleFile(doc, file, docIndex, fileIndex) {
+    const statusEl = document.getElementById(`vbdh-status-${docIndex}-${fileIndex}`);
+    const resultEl = document.getElementById(`vbdh-result-${docIndex}-${fileIndex}`);
     const config = window.__vbdhConfig || {};
     const apiUrl = config.apiUrl || DEFAULT_API_URL;
     const apiKey = config.apiKey || '';
@@ -205,10 +232,10 @@
     }
 
     try {
-      // Check cache trước — tránh upload lại nếu đã xử lý
-      const cacheKey = generateCacheKey(doc);
+      // Cache key cho từng file riêng biệt
+      const cacheKey = generateCacheKey(doc, file);
       statusEl.textContent = '⏳ Kiểm tra cache...';
-      
+
       let cachedResult = null;
       try {
         const cacheRes = await fetch(`${apiUrl}/documents/check-cache`, {
@@ -222,12 +249,11 @@
             cachedResult = cacheJson.data;
           }
         }
-      } catch (e) { /* ignore cache check errors */ }
+      } catch (e) { /* ignore */ }
 
       if (cachedResult) {
-        // Đã có trong cache → hiển thị kết quả luôn, không upload lại
         statusEl.className = 'vbdh-status vbdh-status-done';
-        statusEl.textContent = '✅ Cache';
+        statusEl.textContent = '⚡ Cache';
         const displayData = {
           extractionResult: cachedResult.extractionResult || {},
           status: cachedResult.status || 'completed',
@@ -237,28 +263,24 @@
         return;
       }
 
-      // Chưa có → fetch files và upload như cũ
-      const fileBlobs = [];
-      for (let i = 0; i < doc.files.length; i++) {
-        if (i > 0) await sleep(1000);
-        statusEl.textContent = `⏳ Tải file ${i + 1}/${doc.files.length}...`;
-        const blob = await fetchFile(doc.files[i].url);
-        if (blob) fileBlobs.push({ name: doc.files[i].name, blob });
-      }
+      // Fetch file
+      statusEl.textContent = '⏳ Đang tải file...';
+      const blob = await fetchFile(file.url);
 
-      if (fileBlobs.length === 0) {
+      if (!blob) {
         statusEl.className = 'vbdh-status vbdh-status-error';
         statusEl.textContent = '❌ Lỗi tải file';
         resultEl.innerHTML = '<div class="vbdh-error">Không tải được file đính kèm.</div>';
         return;
       }
 
-      // Upload
+      // Upload 1 file duy nhất
       statusEl.textContent = '⏳ Đang upload...';
+      const singleDoc = { ...doc, files: [file] };
       const formData = new FormData();
-      formData.append('metadata', JSON.stringify({ ...doc, cacheKey }));
+      formData.append('metadata', JSON.stringify({ ...singleDoc, cacheKey }));
       formData.append('cacheKey', cacheKey);
-      fileBlobs.forEach(f => formData.append('files', f.blob, f.name));
+      formData.append('files', blob, file.name);
 
       const uploadRes = await fetch(`${apiUrl}/documents/upload`, {
         method: 'POST',
@@ -295,7 +317,6 @@
         }
       }
 
-      // Display
       displayResult(extractData, statusEl, resultEl, docResult.documentId, apiUrl, apiKey);
 
     } catch (error) {
@@ -313,7 +334,7 @@
     const isCached = data._cached === true;
 
     statusEl.className = 'vbdh-status vbdh-status-done';
-    statusEl.textContent = isCached ? '✅ Cache' : '✅ Xong';
+    statusEl.textContent = isCached ? '⚡ Cache' : '✅ Xong';
 
     const summary = extraction.summary || extraction.raw || '';
     const tasks = extraction.tasks || [];
@@ -321,17 +342,17 @@
 
     let html = '';
 
-    if (isCached) html += '<div class="vbdh-cache-badge">⚡ Dữ liệu cache</div>';
+    // Summary — 1 dòng
+    html += '<div class="vbdh-summary-line">📝 <b>Tóm tắt:</b> ' + (summary || 'Không có tóm tắt') + '</div>';
 
-    // Reprocess button — ở trên cùng
-    html += `<div class="vbdh-top-actions"><button class="vbdh-btn-reprocess" onclick="window.__vbdhReprocess['${documentId}'].action()">🔄 Xử lý lại</button></div>`;
+    // Tiêu đề + nút xử lý lại cùng dòng
+    html += '<div class="vbdh-section-header">';
+    html += '<span class="vbdh-section-title">📋 Nhiệm vụ & Phòng ban đề xuất</span>';
+    html += `<button class="vbdh-btn-reprocess" title="Xử lý lại" id="vbdh-reprocess-${documentId}">🔄</button>`;
+    html += '</div>';
 
-    // Summary — 1 dòng riêng
-    html += '<div class="vbdh-summary-line"><b>📝 Tóm tắt:</b> ' + (summary || 'Không có tóm tắt') + '</div>';
-
-    // Combined table: STT | Nhiệm vụ | Phòng ban đề xuất
+    // Table with border
     const maxRows = Math.max(tasks.length, departments.length, 1);
-    html += '<div class="vbdh-card"><div class="vbdh-card-title">📋 Nhiệm vụ & Phòng ban đề xuất</div><div class="vbdh-card-body">';
     if (tasks.length > 0 || departments.length > 0) {
       html += '<table class="vbdh-table"><thead><tr><th style="width:40px">STT</th><th>Nhiệm vụ</th><th>Phòng ban đề xuất</th></tr></thead><tbody>';
       for (let i = 0; i < maxRows; i++) {
@@ -343,17 +364,20 @@
       }
       html += '</tbody></table>';
     } else {
-      html += '<p>Không có nhiệm vụ</p>';
+      html += '<div class="vbdh-no-data">Không có nhiệm vụ</div>';
     }
-    html += '</div></div>';
 
-    // Store for reprocess
-    window.__vbdhReprocess = window.__vbdhReprocess || {};
-    window.__vbdhReprocess[documentId] = {
-      action: async () => {
+    // Bind reprocess with confirm
+    resultEl.innerHTML = html;
+
+    const reprocessBtn = document.getElementById(`vbdh-reprocess-${documentId}`);
+    if (reprocessBtn) {
+      reprocessBtn.onclick = async () => {
+        if (!confirm('Bạn có muốn xử lý lại file này không?')) return;
+        reprocessBtn.disabled = true;
         statusEl.className = 'vbdh-status vbdh-status-pending';
         statusEl.textContent = '⏳ Xử lý lại';
-        resultEl.innerHTML = '<div class="vbdh-spinner"></div><p>Đang xử lý lại...</div>';
+        resultEl.innerHTML = '<div class="vbdh-spinner"></div><p>Đang xử lý lại...</p>';
         try {
           const res = await fetch(`${apiUrl}/documents/${documentId}/re-extract`, {
             method: 'POST',
@@ -375,10 +399,8 @@
           statusEl.textContent = '❌ Lỗi';
           resultEl.innerHTML = `<div class="vbdh-error">${e.message}</div>`;
         }
-      }
-    };
-
-    resultEl.innerHTML = html;
+      };
+    }
   }
 
   // ===== HELPERS =====
@@ -393,9 +415,9 @@
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  function generateCacheKey(doc) {
-    const normalizedFiles = doc.files.map(f => f.name.replace(/(\.signed)+/gi, '')).sort().join(',');
-    return [doc.maDinhDanh, doc.soKyHieu, doc.ngayBanHanh, doc.coQuanBanHanh, normalizedFiles].join('|||');
+  function generateCacheKey(doc, file) {
+    const normalizedFileName = file.name.replace(/(\.signed)+/gi, '');
+    return [doc.maDinhDanh, doc.soKyHieu, doc.ngayBanHanh, doc.coQuanBanHanh, normalizedFileName].join('|||');
   }
 
   // ===== CSS =====
@@ -406,44 +428,70 @@
       .vbdh-overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); }
       .vbdh-container { position:relative; width:90%; max-width:900px; max-height:85vh; background:#fff; border-radius:12px; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,0.3); }
       .vbdh-header { display:flex; justify-content:space-between; align-items:center; padding:16px 24px; border-bottom:2px solid #1a73e8; }
-      .vbdh-header h2 { margin:0; font-size:18px; color:#1a73e8; }
+      .vbdh-header h2 { margin:0; font-size:18px; color:#1a73e8; text-align:left; }
       .vbdh-close { background:none; border:none; font-size:28px; cursor:pointer; color:#666; padding:0 8px; }
       .vbdh-close:hover { color:#333; background:#f0f0f0; border-radius:4px; }
       .vbdh-body { padding:16px 24px; overflow-y:auto; flex:1; }
       .vbdh-loading,.vbdh-empty { text-align:center; padding:40px; color:#666; }
       .vbdh-spinner { width:36px; height:36px; border:4px solid #e8e8e8; border-top-color:#1a73e8; border-radius:50%; animation:vbdh-spin 1s linear infinite; margin:0 auto 12px; }
       @keyframes vbdh-spin { to { transform:rotate(360deg); } }
-      .vbdh-accordion { border:1px solid #e0e0e0; border-radius:8px; margin-bottom:8px; overflow:hidden; }
-      .vbdh-accordion-header { display:flex; align-items:center; gap:12px; padding:12px 16px; background:#f8f9fa; cursor:pointer; user-select:none; }
-      .vbdh-accordion-header:hover { background:#f0f2f5; }
-      .vbdh-arrow { font-size:12px; color:#666; width:16px; }
-      .vbdh-accordion-title { flex:1; font-size:14px; }
-      .vbdh-file-count { font-size:12px; background:#e3f2fd; color:#1565c0; padding:2px 8px; border-radius:12px; margin-left:8px; }
-      .vbdh-status { font-size:12px; padding:4px 12px; border-radius:12px; white-space:nowrap; }
+
+      /* Doc accordion */
+      .vbdh-doc-accordion { border:1px solid #d0d5dd; border-radius:8px; margin-bottom:12px; overflow:hidden; }
+      .vbdh-doc-header { display:flex; align-items:center; gap:10px; padding:12px 16px; background:#f0f4f8; cursor:pointer; user-select:none; text-align:left; }
+      .vbdh-doc-header:hover { background:#e4eaf0; }
+      .vbdh-doc-title { flex:1; font-size:14px; text-align:left; }
+      .vbdh-file-count { font-size:11px; background:#d0e3f7; color:#1565c0; padding:2px 8px; border-radius:10px; margin-left:8px; }
+      .vbdh-doc-content { border-top:1px solid #d0d5dd; padding:12px 16px; }
+      .vbdh-doc-info { display:flex; flex-wrap:wrap; gap:6px 24px; font-size:13px; color:#555; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #eee; text-align:left; }
+      .vbdh-doc-info div { text-align:left; }
+
+      /* File accordion */
+      .vbdh-file-item { border:1px solid #e2e6ea; border-radius:6px; margin-bottom:8px; overflow:hidden; }
+      .vbdh-file-header { display:flex; align-items:center; gap:8px; padding:10px 14px; background:#fafbfc; cursor:pointer; user-select:none; text-align:left; }
+      .vbdh-file-header:hover { background:#f0f2f5; }
+      .vbdh-file-icon { font-size:16px; }
+      .vbdh-file-name { flex:1; font-size:13px; color:#333; text-align:left; }
+      .vbdh-file-content { border-top:1px solid #e2e6ea; padding:14px 16px; }
+
+      /* Status badges */
+      .vbdh-status { font-size:11px; padding:3px 10px; border-radius:10px; white-space:nowrap; }
       .vbdh-status-pending { background:#fff3e0; color:#e65100; }
       .vbdh-status-done { background:#e8f5e9; color:#2e7d32; }
       .vbdh-status-error { background:#ffebee; color:#c62828; }
-      .vbdh-accordion-content { padding:16px; border-top:1px solid #e0e0e0; }
-      .vbdh-doc-info { display:flex; flex-wrap:wrap; gap:8px 24px; font-size:13px; color:#555; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #f0f0f0; }
-      .vbdh-card { margin-bottom:12px; }
-      .vbdh-card-title { font-weight:600; font-size:14px; color:#1a73e8; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid #f0f0f0; }
-      .vbdh-card-body { font-size:13px; line-height:1.6; color:#333; }
-      .vbdh-table { width:100%; border-collapse:collapse; margin-top:4px; }
-      .vbdh-table th { background:#f5f7fa; padding:8px 12px; text-align:left; font-size:13px; color:#333; border-bottom:2px solid #e0e0e0; }
-      .vbdh-table td { padding:8px 12px; border-bottom:1px solid #f0f0f0; font-size:13px; }
-      .vbdh-table tr:hover td { background:#fafbfc; }
-      .vbdh-score-bar { display:inline-block; width:120px; height:8px; background:#e0e0e0; border-radius:4px; margin-right:8px; vertical-align:middle; }
+
+      /* Summary */
+      .vbdh-summary-line { font-size:13px; color:#333; line-height:1.6; padding:8px 0 10px 0; margin-bottom:10px; border-bottom:1px solid #eee; text-align:left; }
+
+      /* Section header: title left + reprocess right */
+      .vbdh-section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+      .vbdh-section-title { font-weight:600; font-size:14px; color:#1a73e8; }
+      .vbdh-btn-reprocess { width:32px; height:32px; border:1px solid #d0d5dd; background:#fff; border-radius:6px; cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
+      .vbdh-btn-reprocess:hover { background:#fff3e0; border-color:#e65100; }
+      .vbdh-btn-reprocess:disabled { opacity:0.5; cursor:not-allowed; }
+
+      /* Table with border */
+      .vbdh-table { width:100%; border-collapse:collapse; font-size:13px; }
+      .vbdh-table th { background:#f0f4f8; padding:10px 12px; text-align:left; font-weight:600; color:#333; border:1px solid #d0d5dd; }
+      .vbdh-table td { padding:10px 12px; border:1px solid #d0d5dd; vertical-align:top; }
+      .vbdh-table tbody tr:hover td { background:#f7f9fc; }
+      .vbdh-table tbody tr:nth-child(even) td { background:#fafbfc; }
+      .vbdh-table tbody tr:nth-child(even):hover td { background:#f0f2f5; }
+
+      /* Score bar */
+      .vbdh-dept-cell { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+      .vbdh-score-bar { display:inline-block; width:100px; height:8px; background:#e8e8e8; border-radius:4px; overflow:hidden; }
       .vbdh-score-fill { height:100%; border-radius:4px; background:linear-gradient(90deg,#4caf50,#1a73e8); }
-      .vbdh-cache-badge { display:inline-block; background:#e8f5e9; color:#2e7d32; padding:4px 12px; border-radius:12px; font-size:12px; margin-bottom:8px; }
-      .vbdh-top-actions { margin-bottom:12px; }
-      .vbdh-summary-line { font-size:13px; color:#333; line-height:1.6; padding:8px 0; margin-bottom:12px; border-bottom:1px solid #f0f0f0; }
-      .vbdh-dept-cell { display:flex; align-items:center; gap:6px; }
-      .vbdh-score-text { font-size:12px; color:#666; min-width:32px; }
-      .vbdh-btn-reprocess { padding:8px 20px; background:#1a73e8; color:white; border:none; border-radius:6px; cursor:pointer; font-size:13px; margin-top:8px; }
-      .vbdh-btn-reprocess:hover { background:#1557b0; }
-      .vbdh-btn-reprocess:disabled { background:#ccc; cursor:not-allowed; }
-      .vbdh-error { color:#c62828; padding:12px; background:#ffebee; border-radius:6px; }
+      .vbdh-score-text { font-size:11px; color:#666; min-width:30px; }
+
+      /* Misc */
+      .vbdh-no-data { font-size:13px; color:#999; padding:8px 0; text-align:left; }
+      .vbdh-error { color:#c62828; padding:12px; background:#ffebee; border-radius:6px; text-align:left; font-size:13px; }
       .vbdh-result-loading { text-align:center; padding:20px; }
+      .vbdh-arrow { font-size:11px; color:#888; width:14px; text-align:center; }
+
+      /* Cache badge */
+      .vbdh-cache-badge { display:inline-block; background:#e8f5e9; color:#2e7d32; padding:3px 10px; border-radius:10px; font-size:11px; margin-bottom:6px; }
     `;
   }
 })();
