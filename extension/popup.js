@@ -1,11 +1,16 @@
 /**
  * Popup Script - VBDH Assistant
  * 
- * Gọi API của tbkl-hoatien, xác thực qua API Key.
- * Inject content script programmatically (đỡ bị vấn đề content_scripts không inject).
+ * Approach: Popup inject functions vào tab QLVBDH qua chrome.scripting.executeScript
+ * Không dùng content_scripts (không inject được trên Chrome mới).
+ * 
+ * Flow:
+ * 1. User click Extension → popup mở
+ * 2. Popup inject extractFunction() vào tab → đọc DOM + React state
+ * 3. Popup inject fetchFunction(url) → fetch file (same-origin)
+ * 4. Popup gửi data lên tbkl-hoatien API
  */
 
-const DEFAULT_API_URL = '';
 const SERVICE_NAME = 'vbdh-assistant';
 const RATE_LIMIT_MS = 1000;
 
@@ -34,11 +39,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ===== CONFIG =====
+
 function loadConfig() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['vbdh_api_url', 'vbdh_api_key'], (result) => {
       resolve({
-        apiUrl: result.vbdh_api_url || DEFAULT_API_URL,
+        apiUrl: result.vbdh_api_url || '',
         apiKey: result.vbdh_api_key || '',
       });
     });
@@ -98,30 +104,6 @@ async function saveSettings() {
   }
 }
 
-// ===== INJECT CONTENT SCRIPT =====
-
-async function ensureContentScript(tabId) {
-  // Thử gửi message trước — nếu content script đã inject thì OK
-  try {
-    const response = await chrome.tabs.sendMessage(tabId, { action: 'ping' });
-    if (response?.pong) return true;
-  } catch (e) {
-    // Content script chưa inject → inject programmatically
-  }
-
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['content.js']
-    });
-    console.log('[VBDH] Content script injected');
-    return true;
-  } catch (e) {
-    console.error('[VBDH] Failed to inject:', e);
-    return false;
-  }
-}
-
 // ===== MAIN FLOW =====
 
 async function processEmail(forceReprocess = false) {
@@ -140,41 +122,46 @@ async function processEmail(forceReprocess = false) {
       return;
     }
 
-    // Inject content script nếu chưa có
-    const injected = await ensureContentScript(tab.id);
-    if (!injected) {
-      showError('Không thể inject content script. Vui lòng reload trang (F5).');
-      return;
-    }
-
-    // Step 1: Đọc React state
+    // ===== BƯỚC 1: Inject function đọc dữ liệu vào tab =====
     updateLoadingText('Đang đọc thông tin văn bản...');
-    const extractResponse = await chrome.tabs.sendMessage(tab.id, { action: 'extractData' });
 
-    if (!extractResponse?.success) {
-      showError(extractResponse?.error || 'Không thể đọc nội dung email.');
+    const extractResults = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: extractDocumentData,
+    });
+
+    const docData = extractResults?.[0]?.result;
+
+    if (!docData || !docData.success) {
+      showError(docData?.error || 'Không tìm thấy thông tin văn bản. Vui lòng mở chi tiết 1 văn bản.');
       return;
     }
 
-    const docData = extractResponse.data;
+    console.log('[VBDH] Extracted:', docData);
 
-    // Step 2: Fetch files
+    // ===== BƯỚC 2: Fetch từng file =====
     const fileBlobs = [];
-    if (docData.files && docData.files.length > 0) {
-      for (let i = 0; i < docData.files.length; i++) {
-        const file = docData.files[i];
-        updateLoadingText(`Đang tải file ${i + 1}/${docData.files.length}: ${file.name}`);
-        if (i > 0) await sleep(RATE_LIMIT_MS);
+    const files = docData.files || [];
 
-        const fetchResponse = await chrome.tabs.sendMessage(tab.id, {
-          action: 'fetchFile',
-          fileUrl: file.url,
-        });
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      updateLoadingText(`Đang tải file ${i + 1}/${files.length}: ${file.name}`);
 
-        if (fetchResponse?.success) {
-          const blob = base64ToBlob(fetchResponse.data.content, file.mimeType);
-          fileBlobs.push({ name: file.name, blob });
-        }
+      if (i > 0) await sleep(RATE_LIMIT_MS);
+
+      const fetchResults = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: fetchFileAsBase64,
+        args: [file.url],
+      });
+
+      const fetchResult = fetchResults?.[0]?.result;
+
+      if (fetchResult?.success) {
+        const blob = base64ToBlob(fetchResult.content, file.mimeType);
+        fileBlobs.push({ name: file.name, blob });
+      } else {
+        console.warn('[VBDH] Failed to fetch file:', file.name, fetchResult?.error);
       }
     }
 
@@ -183,7 +170,7 @@ async function processEmail(forceReprocess = false) {
       return;
     }
 
-    // Step 3: Upload lên tbkl-hoatien
+    // ===== BƯỚC 3: Upload lên tbkl-hoatien =====
     updateLoadingText('Đang upload lên hệ thống...');
 
     const metadata = JSON.stringify({
@@ -213,7 +200,7 @@ async function processEmail(forceReprocess = false) {
 
     const documentId = results[0].documentId;
 
-    // Step 4: Extract
+    // ===== BƯỚC 4: AI Extract =====
     updateLoadingText('Đang xử lý AI...');
 
     let extractResult;
@@ -229,21 +216,164 @@ async function processEmail(forceReprocess = false) {
       extractResult = await pollExtractionResult(documentId);
     }
 
-    // Step 5: Display
+    // ===== BƯỚC 5: Display =====
     displayResults(docData, extractResult, documentId);
 
   } catch (error) {
-    if (error.message.includes('Could not establish connection')) {
-      showError('Không thể kết nối với trang. Vui lòng reload trang (F5) và thử lại.');
-    } else {
-      showError(error.message);
-    }
+    showError(error.message);
   } finally {
     state.isProcessing = false;
   }
 }
 
-// ===== API =====
+// ===== FUNCTIONS INJECTED INTO PAGE =====
+
+/**
+ * Hàm này chạy TRONG context của trang QLVBDH
+ * Đọc DOM + React fiber tree → trả về thông tin văn bản + files
+ */
+function extractDocumentData() {
+  try {
+    // Bước 1: Tìm wrapper đang hiển thị chi tiết (có file đính kèm)
+    const wrappers = document.querySelectorAll('.MuiCollapse-wrapperInner');
+    let activeWrapper = null;
+
+    wrappers.forEach((w) => {
+      if (w.offsetHeight > 0 && w.querySelector('.file')) {
+        if (w.querySelector('td.bold') && w.querySelector('.file__name')) {
+          activeWrapper = w;
+        }
+      }
+    });
+
+    if (!activeWrapper) {
+      wrappers.forEach((w) => {
+        if (w.offsetHeight > 0 && w.querySelector('.file')) {
+          activeWrapper = w;
+        }
+      });
+    }
+
+    if (!activeWrapper) {
+      return { success: false, error: 'Không tìm thấy chi tiết văn bản. Vui lòng click mở chi tiết 1 văn bản trước.' };
+    }
+
+    // Bước 2: Parse DOM để lấy thông tin
+    const info = {};
+    const rows = activeWrapper.querySelectorAll('tr');
+    rows.forEach(row => {
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 2) {
+        cells.forEach((cell, idx) => {
+          if (cell.classList.contains('bold') && idx + 1 < cells.length) {
+            const label = cell.textContent.trim();
+            const value = cells[idx + 1].textContent.trim();
+            if (label && value) {
+              info[label] = value;
+            }
+          }
+        });
+      }
+    });
+
+    // Bước 3: Lấy files từ React fiber (duyệt child nodes)
+    let filesData = [];
+    const keys = Object.keys(activeWrapper);
+    const reactKey = keys.find(k => k.startsWith('__reactFiber$'));
+
+    if (reactKey) {
+      let fiber = activeWrapper[reactKey];
+      let current = fiber.child?.child?.child;
+
+      // Traverse siblings để tìm files
+      let maxSearch = 50;
+      let sibling = current;
+      while (sibling && maxSearch-- > 0) {
+        const p = sibling.memoizedProps;
+        if (p && Array.isArray(p.files) && p.files.length > 0 && p.files[0].tenTep) {
+          filesData = p.files;
+          break;
+        }
+        if (p && Array.isArray(p.children)) {
+          for (const child of p.children) {
+            if (child && child.props && Array.isArray(child.props.files) && child.props.files.length > 0) {
+              filesData = child.props.files;
+              break;
+            }
+          }
+          if (filesData.length > 0) break;
+        }
+        sibling = sibling.sibling || sibling.child;
+      }
+    }
+
+    // Bước 4: Build result
+    const result = {
+      success: true,
+      soVanBan: info['Sổ văn bản'] || '',
+      soKyHieu: info['Số, ký hiệu VB'] || '',
+      ngayBanHanh: info['Ngày ban hành'] || '',
+      nguoiKy: info['Người ký'] || '',
+      trichYieu: info['Trích yếu'] || '',
+      coQuanBanHanh: info['Cơ quan ban hành'] || '',
+      loaiVanBan: info['Loại văn bản'] || '',
+      maDinhDanh: info['Mã định danh'] || '',
+      files: filesData.map(f => ({
+        name: f.tenTep,
+        url: f.url,
+        mimeType: f.kieuTep || 'application/pdf',
+      })),
+    };
+
+    // Cache key
+    const normalizedFiles = result.files
+      .map(f => f.name.replace(/(\.signed)+/gi, ''))
+      .sort()
+      .join(',');
+    result.cacheKey = [
+      result.maDinhDanh,
+      result.soKyHieu,
+      result.ngayBanHanh,
+      result.coQuanBanHanh,
+      normalizedFiles,
+    ].join('|||');
+
+    return result;
+  } catch (error) {
+    return { success: false, error: 'Lỗi đọc dữ liệu: ' + error.message };
+  }
+}
+
+/**
+ * Fetch file trong context của trang (same-origin → cookie tự gửi)
+ */
+function fetchFileAsBase64(fileUrl) {
+  return fetch(fileUrl, {
+    method: 'GET',
+    credentials: 'same-origin',
+  })
+    .then(response => {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.blob();
+    })
+    .then(blob => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          resolve({
+            success: true,
+            content: reader.result.split(',')[1],
+            size: blob.size,
+          });
+        };
+        reader.onerror = () => resolve({ success: false, error: 'FileReader error' });
+        reader.readAsDataURL(blob);
+      });
+    })
+    .catch(error => ({ success: false, error: error.message }));
+}
+
+// ===== TBKL API =====
 
 async function tbklFetch(path, options = {}) {
   return fetch(`${state.config.apiUrl}${path}`, {
