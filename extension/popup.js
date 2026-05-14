@@ -125,10 +125,20 @@ async function processEmail(forceReprocess = false) {
     // ===== BƯỚC 1: Inject function đọc dữ liệu vào tab =====
     updateLoadingText('Đang đọc thông tin văn bản...');
 
-    const extractResults = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: extractDocumentData,
-    });
+    let extractResults;
+    try {
+      extractResults = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: extractDocumentData,
+      });
+    } catch (injectError) {
+      console.error('[VBDH] Inject failed:', injectError);
+      showError('Không thể inject script vào trang. Lỗi: ' + injectError.message);
+      return;
+    }
+
+    console.log('[VBDH] extractResults:', JSON.stringify(extractResults?.[0]?.result?.files?.length), 'files');
+    console.log('[VBDH] Full result:', JSON.stringify(extractResults?.[0]?.result, null, 2));
 
     const docData = extractResults?.[0]?.result;
 
@@ -137,25 +147,32 @@ async function processEmail(forceReprocess = false) {
       return;
     }
 
-    console.log('[VBDH] Extracted:', docData);
-
     // ===== BƯỚC 2: Fetch từng file =====
     const fileBlobs = [];
     const files = docData.files || [];
+    console.log('[VBDH] Files to fetch:', files.length, files.map(f => f.name));
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       updateLoadingText(`Đang tải file ${i + 1}/${files.length}: ${file.name}`);
+      console.log('[VBDH] Fetching file:', file.name, file.url);
 
       if (i > 0) await sleep(RATE_LIMIT_MS);
 
-      const fetchResults = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: fetchFileAsBase64,
-        args: [file.url],
-      });
+      let fetchResults;
+      try {
+        fetchResults = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: fetchFileAsBase64,
+          args: [file.url],
+        });
+      } catch (fetchInjectError) {
+        console.error('[VBDH] Fetch inject failed:', fetchInjectError);
+        continue;
+      }
 
       const fetchResult = fetchResults?.[0]?.result;
+      console.log('[VBDH] Fetch result for', file.name, ':', fetchResult?.success, 'size:', fetchResult?.size, 'error:', fetchResult?.error);
 
       if (fetchResult?.success) {
         const blob = base64ToBlob(fetchResult.content, file.mimeType);
@@ -164,6 +181,8 @@ async function processEmail(forceReprocess = false) {
         console.warn('[VBDH] Failed to fetch file:', file.name, fetchResult?.error);
       }
     }
+
+    console.log('[VBDH] Total files fetched:', fileBlobs.length, '/', files.length);
 
     if (fileBlobs.length === 0) {
       showError('Không tải được file đính kèm nào.');
@@ -234,12 +253,16 @@ async function processEmail(forceReprocess = false) {
  */
 function extractDocumentData() {
   try {
+    console.log('[VBDH-EXTRACT] Starting extraction...');
+    console.log('[VBDH-EXTRACT] Total wrappers:', document.querySelectorAll('.MuiCollapse-wrapperInner').length);
+
     // Bước 1: Tìm wrapper đang hiển thị chi tiết (có file đính kèm)
     const wrappers = document.querySelectorAll('.MuiCollapse-wrapperInner');
     let activeWrapper = null;
 
-    wrappers.forEach((w) => {
+    wrappers.forEach((w, idx) => {
       if (w.offsetHeight > 0 && w.querySelector('.file')) {
+        console.log('[VBDH-EXTRACT] Candidate wrapper:', idx, 'hasBold:', !!w.querySelector('td.bold'), 'hasFileName:', !!w.querySelector('.file__name'));
         if (w.querySelector('td.bold') && w.querySelector('.file__name')) {
           activeWrapper = w;
         }
@@ -247,6 +270,7 @@ function extractDocumentData() {
     });
 
     if (!activeWrapper) {
+      console.log('[VBDH-EXTRACT] No preferred wrapper, trying fallback...');
       wrappers.forEach((w) => {
         if (w.offsetHeight > 0 && w.querySelector('.file')) {
           activeWrapper = w;
@@ -255,8 +279,11 @@ function extractDocumentData() {
     }
 
     if (!activeWrapper) {
+      console.log('[VBDH-EXTRACT] No active wrapper found at all');
       return { success: false, error: 'Không tìm thấy chi tiết văn bản. Vui lòng click mở chi tiết 1 văn bản trước.' };
     }
+
+    console.log('[VBDH-EXTRACT] Active wrapper found, height:', activeWrapper.offsetHeight);
 
     // Bước 2: Parse DOM để lấy thông tin
     const info = {};
@@ -280,21 +307,29 @@ function extractDocumentData() {
     let filesData = [];
     const keys = Object.keys(activeWrapper);
     const reactKey = keys.find(k => k.startsWith('__reactFiber$'));
+    console.log('[VBDH-EXTRACT] React key:', reactKey ? 'FOUND' : 'NOT FOUND');
 
     if (reactKey) {
       let fiber = activeWrapper[reactKey];
       let current = fiber.child?.child?.child;
+      console.log('[VBDH-EXTRACT] Child depth 2:', current ? 'EXISTS' : 'NULL');
 
       // Traverse siblings để tìm files
       let maxSearch = 50;
       let sibling = current;
+      let searchedCount = 0;
       while (sibling && maxSearch-- > 0) {
+        searchedCount++;
         const p = sibling.memoizedProps;
         if (p && Array.isArray(p.files) && p.files.length > 0 && p.files[0].tenTep) {
           filesData = p.files;
+          console.log('[VBDH-EXTRACT] Files FOUND at sibling', searchedCount, ':', p.files.map(f => f.tenTep));
           break;
         }
         sibling = sibling.sibling || sibling.child;
+      }
+      if (filesData.length === 0) {
+        console.log('[VBDH-EXTRACT] No files found after searching', searchedCount, 'siblings');
       }
     }
 
