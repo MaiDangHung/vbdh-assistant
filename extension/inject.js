@@ -78,11 +78,19 @@
       return;
     }
 
+    // Đếm tổng số nhiệm vụ từ tất cả docs đã cache/xử lý
+    let totalFiles = 0;
+    for (const d of docs) totalFiles += d.files.length;
+
     let html = '';
     for (let i = 0; i < docs.length; i++) {
       html += buildDocAccordion(docs[i], i);
     }
     body.innerHTML = html;
+
+    // Cập nhật tổng task sau khi xử lý xong (sẽ update sau qua callback)
+    // Ban đầu hiển thị tổng số file
+    updateDocFileCounts(docs);
 
     // Bind doc-level accordion
     body.querySelectorAll('.vbdh-doc-header').forEach(header => {
@@ -104,11 +112,13 @@
       };
     });
 
-    // Process each file in each doc
+    // Process each file in each doc (tuần tự để tránh quá tải)
     for (let i = 0; i < docs.length; i++) {
       for (let j = 0; j < docs[i].files.length; j++) {
-        processSingleFile(docs[i], docs[i].files[j], i, j);
+        await processSingleFile(docs[i], docs[i].files[j], i, j);
       }
+      // Sau khi xử lý xong 1 doc → cập nhật badge ngay
+      updateDocTaskBadge(docs, i);
     }
   }
 
@@ -207,10 +217,10 @@
           <span class="vbdh-arrow">▶</span>
           <div class="vbdh-doc-title">
             <strong>${doc.soKyHieu}</strong> — ${shortTitle}
-            <span class="vbdh-file-count">${doc.files.length} file(s)</span>
+            <span class="vbdh-file-count" id="vbdh-file-count-${docIndex}">${doc.files.length} file(s)</span>
           </div>
         </div>
-        <div class="vbdh-doc-content" style="display:none">
+        <div class="vbdh-doc-content" style="display:none" id="vbdh-doc-content-${docIndex}">
           <div class="vbdh-doc-info">
             <div><b>Cơ quan:</b> ${doc.coQuanBanHanh}</div>
             <div><b>Ngày:</b> ${doc.ngayBanHanh}</div>
@@ -473,6 +483,20 @@
         }
       };
     }
+  }
+
+  // ===== DOC COUNT HELPERS =====
+
+  function updateDocFileCounts(docs) {
+    // Ban đầu chỉ hiện số file
+  }
+
+  function updateDocTaskBadge(docs, docIndex) {
+    const badge = document.getElementById(`vbdh-file-count-${docIndex}`);
+    if (!badge) return;
+    const docContent = document.getElementById(`vbdh-doc-content-${docIndex}`);
+    const taskRows = docContent ? docContent.querySelectorAll('.vbdh-table tbody tr').length : 0;
+    badge.textContent = `${docs[docIndex].files.length} file · ${taskRows} nhiệm vụ`;
   }
 
   // ===== HELPERS =====
