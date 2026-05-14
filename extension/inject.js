@@ -247,15 +247,16 @@
       if (cacheResult.found && cacheResult.documentId) {
         console.log('[VBDH] Cache hit for', file.name, 'documentId=', cacheResult.documentId, 'status=', cacheResult.status);
 
-        // Nếu AI đã xử lý xong → hiển thị kết quả
-        if (cacheResult.status === 'completed' && cacheResult.extractionResult) {
-          statusEl.className = 'vbdh-status vbdh-status-done';
-          statusEl.textContent = '⚡ Cache';
-          displayResult(
-            { extractionResult: cacheResult.extractionResult, status: 'completed', _cached: true },
-            statusEl, resultEl, cacheResult.documentId, apiUrl, apiKey
-          );
-          return;
+        if (cacheResult.status === 'completed' || cacheResult.status === 'extracted') {
+          if (cacheResult.extractionResult) {
+            statusEl.className = 'vbdh-status vbdh-status-done';
+            statusEl.textContent = '⚡ Cache';
+            displayResult(
+              { extractionResult: cacheResult.extractionResult, status: cacheResult.status, _cached: true },
+              statusEl, resultEl, cacheResult.documentId, apiUrl, apiKey
+            );
+            return;
+          }
         }
 
         // Nếu đang xử lý → poll cho đến xong
@@ -367,7 +368,8 @@
         if (!res.ok) continue;
         const json = await res.json();
         const data = json.data;
-        if (data.status === 'completed' && data.extractionResult) {
+        // Backend set status = 'extracted' khi AI xong, 'completed' không dùng
+        if ((data.status === 'completed' || data.status === 'extracted') && data.extractionResult) {
           return data;
         }
         if (data.status === 'error') {
@@ -396,7 +398,13 @@
 
     const summary = extraction.summary || extraction.raw || '';
     const tasks = extraction.tasks || [];
-    const departments = extraction.departments || [];
+
+    // Debug: log extraction data để kiểm tra
+    console.log('[VBDH] Extraction result:', JSON.stringify(extraction, null, 2));
+    console.log('[VBDH] Tasks count:', tasks.length);
+    if (tasks.length > 0) {
+      console.log('[VBDH] First task:', JSON.stringify(tasks[0]));
+    }
 
     let html = '';
 
@@ -410,17 +418,28 @@
     html += '</div>';
 
     // Table with border
-    const maxRows = Math.max(tasks.length, departments.length, 1);
-    if (tasks.length > 0 || departments.length > 0) {
-      html += '<table class="vbdh-table"><thead><tr><th style="width:40px">STT</th><th>Nhiệm vụ</th><th>Phòng ban đề xuất</th></tr></thead><tbody>';
-      for (let i = 0; i < maxRows; i++) {
-        const task = tasks[i] ? (typeof tasks[i] === 'string' ? tasks[i] : tasks[i].title || JSON.stringify(tasks[i])) : '';
-        const dept = departments[i] ? (typeof departments[i] === 'string' ? departments[i] : departments[i].name || '') : '';
-        const score = departments[i] && departments[i].score ? departments[i].score : '';
-        const scoreHtml = score !== '' 
-          ? `<div class="vbdh-dept-cell"><span>${dept}</span><div class="vbdh-score-bar"><div class="vbdh-score-fill" style="width:${score}%"></div></div><span class="vbdh-score-text">${score}%</span></div>` 
-          : (dept ? `<span>${dept}</span>` : '');
-        html += `<tr><td>${i + 1}</td><td style="text-align:left">${task}</td><td>${scoreHtml}</td></tr>`;
+    // Mỗi task có department riêng (string), lấy từ task.department
+    if (tasks.length > 0) {
+      html += '<table class="vbdh-table"><thead><tr><th style="width:40px">STT</th><th>Nhiệm vụ</th><th style="width:200px">Phòng ban đề xuất</th></tr></thead><tbody>';
+      for (let i = 0; i < tasks.length; i++) {
+        const t = tasks[i];
+        const taskTitle = typeof t === 'string' ? t : (t.title || '');
+        const taskDesc = (typeof t === 'object' && t.description) ? t.description : '';
+        // Department: AI trả trong mỗi task object dưới key "department"
+        const dept = (typeof t === 'object' && t.department) ? t.department : '';
+        const deadline = (typeof t === 'object' && t.deadline) ? t.deadline : '';
+        const priority = (typeof t === 'object' && t.priority) ? t.priority : '';
+
+        // Task cell: title + description (muted)
+        let taskCell = '<b>' + escapeHtml(taskTitle) + '</b>';
+        if (taskDesc && taskDesc !== taskTitle) {
+          taskCell += '<div class="vbdh-task-desc">' + escapeHtml(taskDesc) + '</div>';
+        }
+
+        // Dept cell
+        let deptCell = dept ? '<span class="vbdh-dept-name">' + escapeHtml(dept) + '</span>' : '<span class="vbdh-dept-empty">—</span>';
+
+        html += `<tr><td>${i + 1}</td><td style="text-align:left">${taskCell}</td><td>${deptCell}</td></tr>`;
       }
       html += '</tbody></table>';
     } else {
@@ -466,6 +485,11 @@
   }
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function escapeHtml(text) {
+    if (!text) return '';
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
 
   function generateCacheKey(doc, file) {
     const normalizedFileName = file.name.replace(/(\.signed)+/gi, '');
@@ -535,6 +559,9 @@
       .vbdh-score-bar { display:inline-block; width:100px; height:8px; background:#e8e8e8; border-radius:4px; overflow:hidden; }
       .vbdh-score-fill { height:100%; border-radius:4px; background:linear-gradient(90deg,#4caf50,#1a73e8); }
       .vbdh-score-text { font-size:11px; color:#666; min-width:30px; }
+      .vbdh-dept-name { font-size:13px; color:#1565c0; font-weight:500; }
+      .vbdh-dept-empty { color:#bbb; }
+      .vbdh-task-desc { font-size:12px; color:#666; margin-top:4px; line-height:1.5; border-top:1px dashed #e0e0e0; padding-top:4px; }
 
       /* Misc */
       .vbdh-no-data { font-size:13px; color:#999; padding:8px 0; text-align:left; }
