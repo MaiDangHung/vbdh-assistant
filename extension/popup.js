@@ -129,6 +129,7 @@ async function processEmail(forceReprocess = false) {
     try {
       extractResults = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
+        world: 'MAIN',
         func: extractDocumentData,
       });
     } catch (injectError) {
@@ -163,6 +164,7 @@ async function processEmail(forceReprocess = false) {
       try {
         fetchResults = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
+          world: 'MAIN',
           func: fetchFileAsBase64,
           args: [file.url],
         });
