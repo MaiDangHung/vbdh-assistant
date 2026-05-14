@@ -18,8 +18,10 @@
   function toggleVbdhModal() {
     const existingModal = document.getElementById('vbdh-assistant-modal');
     if (existingModal) {
-      existingModal.style.display = existingModal.style.display === 'none' ? 'flex' : 'none';
-      if (existingModal.style.display === 'flex') {
+      const willShow = existingModal.style.display === 'none';
+      existingModal.style.display = willShow ? 'flex' : 'none';
+      document.body.style.overflow = willShow ? 'hidden' : '';
+      if (willShow) {
         window.__vbdhRefresh && window.__vbdhRefresh();
       }
       return;
@@ -48,9 +50,15 @@
     modal.appendChild(style);
 
     document.body.appendChild(modal);
+    document.body.style.overflow = 'hidden';
 
-    modal.querySelector('.vbdh-close').onclick = () => modal.style.display = 'none';
-    modal.querySelector('.vbdh-overlay').onclick = () => modal.style.display = 'none';
+    const closeModal = () => {
+      modal.style.display = 'none';
+      document.body.style.overflow = '';
+    };
+
+    modal.querySelector('.vbdh-close').onclick = closeModal;
+    modal.querySelector('.vbdh-overlay').onclick = closeModal;
 
     window.__vbdhRefresh = () => processAllDocuments(modal);
     window.__vbdhRefresh();
@@ -70,7 +78,6 @@
       return;
     }
 
-    // Build HTML: mỗi văn bản là 1 accordion, bên trong có sub-accordion cho từng file
     let html = '';
     for (let i = 0; i < docs.length; i++) {
       html += buildDocAccordion(docs[i], i);
@@ -232,38 +239,47 @@
     }
 
     try {
-      // Cache key cho từng file riêng biệt
       const cacheKey = generateCacheKey(doc, file);
       statusEl.textContent = '⏳ Kiểm tra cache...';
 
-      let cachedResult = null;
-      try {
-        const cacheRes = await fetch(`${apiUrl}/documents/check-cache`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
-          body: JSON.stringify({ cacheKey }),
-        });
-        if (cacheRes.ok) {
-          const cacheJson = await cacheRes.json();
-          if (cacheJson.data && cacheJson.data.exists) {
-            cachedResult = cacheJson.data;
-          }
-        }
-      } catch (e) { /* ignore */ }
+      // Check cache — nếu đã xử lý thì hiển thị kết quả luôn
+      const cacheResult = await checkCache(apiUrl, apiKey, cacheKey);
+      if (cacheResult.found && cacheResult.documentId) {
+        console.log('[VBDH] Cache hit for', file.name, 'documentId=', cacheResult.documentId, 'status=', cacheResult.status);
 
-      if (cachedResult) {
-        statusEl.className = 'vbdh-status vbdh-status-done';
-        statusEl.textContent = '⚡ Cache';
-        const displayData = {
-          extractionResult: cachedResult.extractionResult || {},
-          status: cachedResult.status || 'completed',
-          _cached: true
-        };
-        displayResult(displayData, statusEl, resultEl, cachedResult.documentId, apiUrl, apiKey);
-        return;
+        // Nếu AI đã xử lý xong → hiển thị kết quả
+        if (cacheResult.status === 'completed' && cacheResult.extractionResult) {
+          statusEl.className = 'vbdh-status vbdh-status-done';
+          statusEl.textContent = '⚡ Cache';
+          displayResult(
+            { extractionResult: cacheResult.extractionResult, status: 'completed', _cached: true },
+            statusEl, resultEl, cacheResult.documentId, apiUrl, apiKey
+          );
+          return;
+        }
+
+        // Nếu đang xử lý → poll cho đến xong
+        if (cacheResult.status === 'processing' || cacheResult.status === 'extracting') {
+          statusEl.className = 'vbdh-status vbdh-status-pending';
+          statusEl.textContent = '⏳ AI đang xử lý...';
+          const extractData = await pollUntilDone(apiUrl, apiKey, cacheResult.documentId, statusEl);
+          displayResult(extractData, statusEl, resultEl, cacheResult.documentId, apiUrl, apiKey);
+          return;
+        }
+
+        // Nếu có extractionResult bất kể status → hiển thị
+        if (cacheResult.extractionResult) {
+          statusEl.className = 'vbdh-status vbdh-status-done';
+          statusEl.textContent = '⚡ Cache';
+          displayResult(
+            { extractionResult: cacheResult.extractionResult, status: cacheResult.status, _cached: true },
+            statusEl, resultEl, cacheResult.documentId, apiUrl, apiKey
+          );
+          return;
+        }
       }
 
-      // Fetch file
+      // Không có cache → fetch file và upload
       statusEl.textContent = '⏳ Đang tải file...';
       const blob = await fetchFile(file.url);
 
@@ -274,9 +290,9 @@
         return;
       }
 
-      // Upload 1 file duy nhất
+      // Upload 1 file
       statusEl.textContent = '⏳ Đang upload...';
-      const singleDoc = { ...doc, files: [file] };
+      const singleDoc = { ...doc, files: [{ name: file.name }] };
       const formData = new FormData();
       formData.append('metadata', JSON.stringify({ ...singleDoc, cacheKey }));
       formData.append('cacheKey', cacheKey);
@@ -295,29 +311,14 @@
       const docResult = results[0];
       if (!docResult?.documentId) throw new Error(docResult?.error || 'Upload thất bại');
 
-      // Extract
-      statusEl.textContent = '⏳ Đang trích xuất AI...';
-      const extractRes = await fetch(`${apiUrl}/documents/${docResult.documentId}/extract`, {
-        method: 'POST',
-        headers: { 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
-      });
-      let extractData = (await extractRes.json()).data;
+      const documentId = docResult.documentId;
 
-      // Poll if processing
-      if (extractData.status === 'processing' || extractData.status === 'extracting') {
-        for (let attempt = 0; attempt < 30; attempt++) {
-          await sleep(3000);
-          statusEl.textContent = `⏳ AI xử lý (${attempt + 1}/30)...`;
-          const pollRes = await fetch(`${apiUrl}/documents/${docResult.documentId}/result`, {
-            headers: { 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
-          });
-          extractData = (await pollRes.json()).data;
-          if (extractData.status === 'completed' || extractData.extractionResult) break;
-          if (extractData.status === 'error') throw new Error('AI xử lý thất bại');
-        }
-      }
-
-      displayResult(extractData, statusEl, resultEl, docResult.documentId, apiUrl, apiKey);
+      // Upload đã trigger AI async → poll cho đến xong
+      // KHÔNG gọi /extract vì uploadAndProcess đã tự chạy AI rồi
+      statusEl.className = 'vbdh-status vbdh-status-pending';
+      statusEl.textContent = '⏳ AI đang xử lý...';
+      const extractData = await pollUntilDone(apiUrl, apiKey, documentId, statusEl);
+      displayResult(extractData, statusEl, resultEl, documentId, apiUrl, apiKey);
 
     } catch (error) {
       console.error('[VBDH] Error:', error);
@@ -325,6 +326,63 @@
       statusEl.textContent = '❌ Lỗi';
       resultEl.innerHTML = `<div class="vbdh-error">${error.message}</div>`;
     }
+  }
+
+  // ===== CHECK CACHE =====
+
+  async function checkCache(apiUrl, apiKey, cacheKey) {
+    try {
+      const res = await fetch(`${apiUrl}/documents/check-cache`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
+        body: JSON.stringify({ cacheKey }),
+      });
+      if (!res.ok) return { found: false };
+      const json = await res.json();
+      const data = json.data;
+      if (data && data.exists) {
+        return {
+          found: true,
+          documentId: data.documentId,
+          status: data.status,
+          extractionResult: data.extractionResult || null,
+        };
+      }
+    } catch (e) {
+      console.warn('[VBDH] Cache check error:', e);
+    }
+    return { found: false };
+  }
+
+  // ===== POLL UNTIL DONE =====
+
+  async function pollUntilDone(apiUrl, apiKey, documentId, statusEl) {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      await sleep(3000);
+      if (statusEl) statusEl.textContent = `⏳ AI xử lý (${attempt + 1}/60)...`;
+      try {
+        const res = await fetch(`${apiUrl}/documents/${documentId}/result`, {
+          headers: { 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
+        });
+        if (!res.ok) continue;
+        const json = await res.json();
+        const data = json.data;
+        if (data.status === 'completed' && data.extractionResult) {
+          return data;
+        }
+        if (data.status === 'error') {
+          throw new Error('AI xử lý thất bại');
+        }
+        // Nếu extractionResult có dữ liệu dù status chưa completed → vẫn dùng
+        if (data.extractionResult && typeof data.extractionResult === 'object' && Object.keys(data.extractionResult).length > 0) {
+          return data;
+        }
+      } catch (e) {
+        if (e.message === 'AI xử lý thất bại') throw e;
+        // Network error → retry
+      }
+    }
+    throw new Error('Quá thời gian chờ AI xử lý');
   }
 
   // ===== DISPLAY RESULT =====
@@ -359,17 +417,19 @@
         const task = tasks[i] ? (typeof tasks[i] === 'string' ? tasks[i] : tasks[i].title || JSON.stringify(tasks[i])) : '';
         const dept = departments[i] ? (typeof departments[i] === 'string' ? departments[i] : departments[i].name || '') : '';
         const score = departments[i] && departments[i].score ? departments[i].score : '';
-        const scoreHtml = score !== '' ? `<div class="vbdh-dept-cell"><span>${dept}</span><div class="vbdh-score-bar"><div class="vbdh-score-fill" style="width:${score}%"></div></div><span class="vbdh-score-text">${score}%</span></div>` : (dept ? `<span>${dept}</span>` : '');
-        html += `<tr><td>${i + 1}</td><td>${task}</td><td>${scoreHtml}</td></tr>`;
+        const scoreHtml = score !== '' 
+          ? `<div class="vbdh-dept-cell"><span>${dept}</span><div class="vbdh-score-bar"><div class="vbdh-score-fill" style="width:${score}%"></div></div><span class="vbdh-score-text">${score}%</span></div>` 
+          : (dept ? `<span>${dept}</span>` : '');
+        html += `<tr><td>${i + 1}</td><td style="text-align:left">${task}</td><td>${scoreHtml}</td></tr>`;
       }
       html += '</tbody></table>';
     } else {
       html += '<div class="vbdh-no-data">Không có nhiệm vụ</div>';
     }
 
-    // Bind reprocess with confirm
     resultEl.innerHTML = html;
 
+    // Bind reprocess with confirm
     const reprocessBtn = document.getElementById(`vbdh-reprocess-${documentId}`);
     if (reprocessBtn) {
       reprocessBtn.onclick = async () => {
@@ -383,16 +443,8 @@
             method: 'POST',
             headers: { 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
           });
-          let d = (await res.json()).data;
-          for (let i = 0; i < 30; i++) {
-            await sleep(3000);
-            const p = await fetch(`${apiUrl}/documents/${documentId}/result`, {
-              headers: { 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
-            });
-            d = (await p.json()).data;
-            if (d.status === 'completed' || d.extractionResult) break;
-            if (d.status === 'error') throw new Error('AI thất bại');
-          }
+          await res.json();
+          const d = await pollUntilDone(apiUrl, apiKey, documentId, statusEl);
           displayResult(d, statusEl, resultEl, documentId, apiUrl, apiKey);
         } catch (e) {
           statusEl.className = 'vbdh-status vbdh-status-error';
@@ -426,33 +478,33 @@
     return `
       #vbdh-assistant-modal { position:fixed; top:0; left:0; width:100%; height:100%; z-index:999999; display:flex; align-items:center; justify-content:center; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
       .vbdh-overlay { position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); }
-      .vbdh-container { position:relative; width:90%; max-width:900px; max-height:85vh; background:#fff; border-radius:12px; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,0.3); }
+      .vbdh-container { position:relative; width:90%; max-width:900px; max-height:85vh; background:#fff; border-radius:12px; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,0.3); text-align:left; }
       .vbdh-header { display:flex; justify-content:space-between; align-items:center; padding:16px 24px; border-bottom:2px solid #1a73e8; }
       .vbdh-header h2 { margin:0; font-size:18px; color:#1a73e8; text-align:left; }
-      .vbdh-close { background:none; border:none; font-size:28px; cursor:pointer; color:#666; padding:0 8px; }
+      .vbdh-close { background:none; border:none; document-size:28px; cursor:pointer; color:#666; padding:0 8px; }
       .vbdh-close:hover { color:#333; background:#f0f0f0; border-radius:4px; }
-      .vbdh-body { padding:16px 24px; overflow-y:auto; flex:1; }
+      .vbdh-body { padding:16px 24px; overflow-y:auto; flex:1; text-align:left; }
       .vbdh-loading,.vbdh-empty { text-align:center; padding:40px; color:#666; }
       .vbdh-spinner { width:36px; height:36px; border:4px solid #e8e8e8; border-top-color:#1a73e8; border-radius:50%; animation:vbdh-spin 1s linear infinite; margin:0 auto 12px; }
       @keyframes vbdh-spin { to { transform:rotate(360deg); } }
 
       /* Doc accordion */
-      .vbdh-doc-accordion { border:1px solid #d0d5dd; border-radius:8px; margin-bottom:12px; overflow:hidden; }
+      .vbdh-doc-accordion { border:1px solid #d0d5dd; border-radius:8px; margin-bottom:12px; overflow:hidden; text-align:left; }
       .vbdh-doc-header { display:flex; align-items:center; gap:10px; padding:12px 16px; background:#f0f4f8; cursor:pointer; user-select:none; text-align:left; }
       .vbdh-doc-header:hover { background:#e4eaf0; }
       .vbdh-doc-title { flex:1; font-size:14px; text-align:left; }
       .vbdh-file-count { font-size:11px; background:#d0e3f7; color:#1565c0; padding:2px 8px; border-radius:10px; margin-left:8px; }
-      .vbdh-doc-content { border-top:1px solid #d0d5dd; padding:12px 16px; }
+      .vbdh-doc-content { border-top:1px solid #d0d5dd; padding:12px 16px; text-align:left; }
       .vbdh-doc-info { display:flex; flex-wrap:wrap; gap:6px 24px; font-size:13px; color:#555; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #eee; text-align:left; }
       .vbdh-doc-info div { text-align:left; }
 
       /* File accordion */
-      .vbdh-file-item { border:1px solid #e2e6ea; border-radius:6px; margin-bottom:8px; overflow:hidden; }
+      .vbdh-file-item { border:1px solid #e2e6ea; border-radius:6px; margin-bottom:8px; overflow:hidden; text-align:left; }
       .vbdh-file-header { display:flex; align-items:center; gap:8px; padding:10px 14px; background:#fafbfc; cursor:pointer; user-select:none; text-align:left; }
       .vbdh-file-header:hover { background:#f0f2f5; }
       .vbdh-file-icon { font-size:16px; }
       .vbdh-file-name { flex:1; font-size:13px; color:#333; text-align:left; }
-      .vbdh-file-content { border-top:1px solid #e2e6ea; padding:14px 16px; }
+      .vbdh-file-content { border-top:1px solid #e2e6ea; padding:14px 16px; text-align:left; }
 
       /* Status badges */
       .vbdh-status { font-size:11px; padding:3px 10px; border-radius:10px; white-space:nowrap; }
@@ -465,21 +517,21 @@
 
       /* Section header: title left + reprocess right */
       .vbdh-section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-      .vbdh-section-title { font-weight:600; font-size:14px; color:#1a73e8; }
+      .vbdh-section-title { font-weight:600; font-size:14px; color:#1a73e8; text-align:left; }
       .vbdh-btn-reprocess { width:32px; height:32px; border:1px solid #d0d5dd; background:#fff; border-radius:6px; cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
       .vbdh-btn-reprocess:hover { background:#fff3e0; border-color:#e65100; }
       .vbdh-btn-reprocess:disabled { opacity:0.5; cursor:not-allowed; }
 
       /* Table with border */
-      .vbdh-table { width:100%; border-collapse:collapse; font-size:13px; }
+      .vbdh-table { width:100%; border-collapse:collapse; font-size:13px; text-align:left; }
       .vbdh-table th { background:#f0f4f8; padding:10px 12px; text-align:left; font-weight:600; color:#333; border:1px solid #d0d5dd; }
-      .vbdh-table td { padding:10px 12px; border:1px solid #d0d5dd; vertical-align:top; }
+      .vbdh-table td { padding:10px 12px; border:1px solid #d0d5dd; vertical-align:top; text-align:left; }
       .vbdh-table tbody tr:hover td { background:#f7f9fc; }
       .vbdh-table tbody tr:nth-child(even) td { background:#fafbfc; }
       .vbdh-table tbody tr:nth-child(even):hover td { background:#f0f2f5; }
 
       /* Score bar */
-      .vbdh-dept-cell { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+      .vbdh-dept-cell { display:flex; align-items:center; gap:6px; flex-wrap:wrap; text-align:left; }
       .vbdh-score-bar { display:inline-block; width:100px; height:8px; background:#e8e8e8; border-radius:4px; overflow:hidden; }
       .vbdh-score-fill { height:100%; border-radius:4px; background:linear-gradient(90deg,#4caf50,#1a73e8); }
       .vbdh-score-text { font-size:11px; color:#666; min-width:30px; }
