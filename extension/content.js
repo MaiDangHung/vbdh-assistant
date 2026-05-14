@@ -3,17 +3,16 @@
  * 
  * Đọc dữ liệu văn bản từ React internal state của hệ thống QLVBDH
  * 
- * ARCHITECTURE:
- * - Content Script: ĐỌC data + FETCH file (cùng origin → không CORS)
- * - Popup: GỬI data lên Backend (extension context → không CORS)
- * - Content Script gửi data về Popup qua chrome.runtime.sendMessage
+ * Data structure (traverse child từ wrapper):
+ * - child depth 2: props.data = [{label, value}, ...] (thông tin văn bản)
+ * - child depth 16 (sibling): props.files = [{tenTep, url, kieuTep, ...}, ...] (file đính kèm)
  */
 
 (function () {
   'use strict';
 
   const RATE_LIMIT_MS = 1000;
-  const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+  const MAX_FILE_SIZE = 20 * 1024 * 1024;
   const FETCH_TIMEOUT_MS = 30000;
 
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -39,25 +38,22 @@
 
   /**
    * Trích xuất dữ liệu từ React fiber tree
-   * Tìm đúng wrapper đang hiển thị chi tiết văn bản
    */
   function extractReactData() {
     try {
-      // Tìm tất cả wrapperInner đang hiển thị (height > 0) và có chứa file đính kèm
+      // Bước 1: Tìm wrapper đang hiển thị chi tiết (có file đính kèm)
       const wrappers = document.querySelectorAll('.MuiCollapse-wrapperInner');
       let activeWrapper = null;
 
       wrappers.forEach((w) => {
-        // Chỉ lấy wrapper đang hiển thị và có chứa thông tin văn bản
         if (w.offsetHeight > 0 && w.querySelector('.file')) {
-          // Ưu tiên wrapper có nhiều thông tin hơn (có cả td.bold và .file)
           if (w.querySelector('td.bold') && w.querySelector('.file__name')) {
             activeWrapper = w;
           }
         }
       });
 
-      // Fallback: tìm wrapper có .file và height > 0
+      // Fallback
       if (!activeWrapper) {
         wrappers.forEach((w) => {
           if (w.offsetHeight > 0 && w.querySelector('.file')) {
@@ -68,7 +64,7 @@
 
       if (!activeWrapper) return null;
 
-      // Tìm React fiber
+      // Bước 2: Lấy React fiber
       const keys = Object.keys(activeWrapper);
       const reactKey = keys.find(k =>
         k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')
@@ -76,35 +72,45 @@
       if (!reactKey) return null;
 
       let fiber = activeWrapper[reactKey];
+
+      // Bước 3: Traverse DOWN child tree để tìm data và files
       let dataLabelValues = null;
       let filesData = null;
 
-      let depth = 0;
-      while (fiber && depth < 30) {
-        const props = fiber.memoizedProps;
-        if (props) {
-          // Tìm data array (thông tin văn bản: label-value pairs)
-          if (!dataLabelValues && Array.isArray(props.data)) {
-            const hasLabel = props.data.every(item => item.label && 'value' in item);
-            if (hasLabel && props.data.length > 5) {
-              dataLabelValues = props.data;
-            }
-          }
-          // Tìm files array (danh sách file đính kèm)
-          if (!filesData && Array.isArray(props.files) && props.files.length > 0) {
-            const firstFile = props.files[0];
-            if (firstFile.tenTep && firstFile.url) {
-              filesData = props.files;
-            }
-          }
-          if (dataLabelValues && filesData) break;
+      // Đi xuống child depth 2 → tìm data
+      let current = fiber.child?.child?.child; // depth 2 từ wrapper
+      if (current?.memoizedProps?.data) {
+        const d = current.memoizedProps.data;
+        if (Array.isArray(d) && d.length > 5 && d[0].label && 'value' in d[0]) {
+          dataLabelValues = d;
         }
-        fiber = fiber.return;
-        depth++;
+      }
+
+      // Traverse siblings từ depth 2 trở đi → tìm files
+      let sibling = current;
+      let maxSearch = 50;
+      while (sibling && maxSearch-- > 0) {
+        const p = sibling.memoizedProps;
+        if (p && Array.isArray(p.files) && p.files.length > 0 && p.files[0].tenTep && p.files[0].url) {
+          filesData = p.files;
+          break;
+        }
+        // Also check children props (React elements)
+        if (p && Array.isArray(p.children)) {
+          for (const child of p.children) {
+            if (child && child.props && Array.isArray(child.props.files) && child.props.files.length > 0) {
+              filesData = child.props.files;
+              break;
+            }
+          }
+          if (filesData) break;
+        }
+        sibling = sibling.sibling || sibling.child;
       }
 
       if (!dataLabelValues) return null;
 
+      // Bước 4: Parse data
       const fields = {};
       dataLabelValues.forEach(item => {
         fields[item.label] = item.value;
