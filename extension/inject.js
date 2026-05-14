@@ -244,6 +244,7 @@
 
       // Check cache — nếu đã xử lý thì hiển thị kết quả luôn
       const cacheResult = await checkCache(apiUrl, apiKey, cacheKey);
+      console.log('[VBDH] Cache check for', file.name, '→ found=', cacheResult.found, 'cacheKey=', cacheKey);
       if (cacheResult.found && cacheResult.documentId) {
         console.log('[VBDH] Cache hit for', file.name, 'documentId=', cacheResult.documentId, 'status=', cacheResult.status);
 
