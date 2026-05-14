@@ -21,18 +21,21 @@
     <!-- Settings -->
     <div id="settings" class="section hidden">
       <div class="card">
-        <div class="card-title">⚙️ Cài đặt</div>
+        <div class="card-title">⚙️ Cài đặt kết nối</div>
         <div class="settings-form">
-          <label>API Key</label>
-          <input type="password" id="setting-api-key" placeholder="Nhập API Key...">
+          <label>API Key <span class="required">*</span></label>
+          <input type="text" id="setting-api-key" placeholder="Nhập API Key...">
+          <p class="hint">Liên hệ quản trị viên để lấy API Key.</p>
           <div class="settings-actions">
-            <button id="btn-save-settings" class="btn btn-primary">💾 Lưu</button>
+            <button id="btn-save-settings" class="btn btn-primary">💾 Lưu & Kiểm tra</button>
+            <button id="btn-cancel-settings" class="btn btn-secondary">Huỷ</button>
           </div>
         </div>
       </div>
     </div>
 
     <div class="footer-actions">
+      <span id="status-text" class="status-text"></span>
       <button id="btn-settings" class="btn-icon" title="Cài đặt">⚙️</button>
     </div>
   </div>
