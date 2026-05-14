@@ -294,15 +294,6 @@ function extractDocumentData() {
           filesData = p.files;
           break;
         }
-        if (p && Array.isArray(p.children)) {
-          for (const child of p.children) {
-            if (child && child.props && Array.isArray(child.props.files) && child.props.files.length > 0) {
-              filesData = child.props.files;
-              break;
-            }
-          }
-          if (filesData.length > 0) break;
-        }
         sibling = sibling.sibling || sibling.child;
       }
     }
