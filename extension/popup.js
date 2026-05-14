@@ -1,19 +1,12 @@
 /**
  * Popup Script - VBDH Assistant
  * 
- * Gọi thẳng API của tbkl-hoatien, không cần backend riêng.
- * Xác thực qua API Key (service-to-service).
- * 
- * Flow:
- * 1. Content Script → đọc React state + fetch files
- * 2. Popup → upload files lên tbkl-hoatien
- * 3. Popup → gọi extract → lấy kết quả
- * 4. Popup → hiển thị kết quả
+ * Gọi API của tbkl-hoatien, xác thực qua API Key.
+ * API Key và Server URL được cấu hình qua Settings (chrome.storage).
  */
 
-// ===== CONFIG =====
-const TBKL_API_BASE = 'https://tbklhoatien.danangsite.com.vn/api/v1/ext';
-const API_KEY = 'vbdh-ext-sk-2026-hoatien-secure';
+// ===== DEFAULT CONFIG (không chứa key thật) =====
+const DEFAULT_API_URL = '';
 const SERVICE_NAME = 'vbdh-assistant';
 const RATE_LIMIT_MS = 1000;
 
@@ -21,20 +14,120 @@ const RATE_LIMIT_MS = 1000;
 const state = {
   currentResult: null,
   isProcessing: false,
+  config: null,
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Load config từ chrome.storage
+  state.config = await loadConfig();
+
+  // Button events
   document.getElementById('btn-retry').addEventListener('click', () => processEmail(false));
   document.getElementById('btn-reprocess').addEventListener('click', () => processEmail(true));
   document.getElementById('btn-save').addEventListener('click', saveResult);
+  document.getElementById('btn-settings').addEventListener('click', showSettings);
+  document.getElementById('btn-cancel-settings').addEventListener('click', hideSettings);
+  document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
+
+  // Nếu chưa có config → hiện settings luôn
+  if (!state.config.apiUrl || !state.config.apiKey) {
+    showSettings();
+    return;
+  }
 
   await processEmail(false);
 });
+
+// ===== CONFIG MANAGEMENT =====
+
+function loadConfig() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['vbdh_api_url', 'vbdh_api_key'], (result) => {
+      resolve({
+        apiUrl: result.vbdh_api_url || DEFAULT_API_URL,
+        apiKey: result.vbdh_api_key || '',
+      });
+    });
+  });
+}
+
+function showSettings() {
+  document.getElementById('setting-api-url').value = state.config.apiUrl || '';
+  document.getElementById('setting-api-key').value = state.config.apiKey || '';
+  showSection('settings');
+}
+
+function hideSettings() {
+  if (!state.config.apiUrl || !state.config.apiKey) {
+    showError('Vui lòng cấu hình API Key trước khi sử dụng.');
+    return;
+  }
+  showSection('noEmail');
+}
+
+async function saveSettings() {
+  const apiUrl = document.getElementById('setting-api-url').value.trim();
+  const apiKey = document.getElementById('setting-api-key').value.trim();
+
+  if (!apiUrl || !apiKey) {
+    alert('Vui lòng nhập đầy đủ API Server URL và API Key.');
+    return;
+  }
+
+  // Test connection
+  const btn = document.getElementById('btn-save-settings');
+  btn.textContent = '⏳ Kiểm tra...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`${apiUrl}/health`, {
+      headers: {
+        'X-API-Key': apiKey,
+        'X-Service-Name': SERVICE_NAME,
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const json = await res.json();
+    if (!json.data?.status) {
+      throw new Error('Response không hợp lệ');
+    }
+
+    // Lưu vào chrome.storage
+    await new Promise((resolve) => {
+      chrome.storage.local.set({
+        vbdh_api_url: apiUrl,
+        vbdh_api_key: apiKey,
+      }, resolve);
+    });
+
+    state.config = { apiUrl, apiKey };
+    btn.textContent = '✅ Đã lưu';
+    setTimeout(() => {
+      btn.textContent = '💾 Lưu cài đặt';
+      btn.disabled = false;
+      // Chuyển sang process email
+      processEmail(false);
+    }, 1000);
+
+  } catch (error) {
+    btn.textContent = '💾 Lưu cài đặt';
+    btn.disabled = false;
+    alert(`Không kết nối được server: ${error.message}\n\nVui lòng kiểm tra lại URL và API Key.`);
+  }
+}
 
 // ===== MAIN FLOW =====
 
 async function processEmail(forceReprocess = false) {
   if (state.isProcessing) return;
+  if (!state.config.apiUrl || !state.config.apiKey) {
+    showSettings();
+    return;
+  }
   state.isProcessing = true;
 
   showSection('loading');
@@ -73,14 +166,13 @@ async function processEmail(forceReprocess = false) {
         });
 
         if (fetchResponse.success) {
-          // Convert base64 back to File object for FormData upload
           const blob = base64ToBlob(fetchResponse.data.content, file.mimeType);
           fileBlobs.push({ name: file.name, blob });
         }
       }
     }
 
-    // Step 3: Upload files lên tbkl-hoatien
+    // Step 3: Upload lên tbkl-hoatien
     if (fileBlobs.length === 0) {
       showError('Không tải được file đính kèm nào.');
       return;
@@ -100,7 +192,6 @@ async function processEmail(forceReprocess = false) {
 
     const formData = new FormData();
     formData.append('metadata', metadata);
-
     fileBlobs.forEach(f => {
       formData.append('files', f.blob, f.name);
     });
@@ -108,7 +199,6 @@ async function processEmail(forceReprocess = false) {
     const uploadResponse = await tbklFetch('/documents/upload', {
       method: 'POST',
       body: formData,
-      // Không set Content-Type — browser tự set multipart boundary
     });
 
     if (!uploadResponse.ok) {
@@ -119,7 +209,7 @@ async function processEmail(forceReprocess = false) {
     const results = uploadResult.data?.results || [];
 
     if (results.length === 0 || !results[0].documentId) {
-      throw new Error('Upload thất công.');
+      throw new Error('Upload thất bại.');
     }
 
     const documentId = results[0].documentId;
@@ -128,13 +218,10 @@ async function processEmail(forceReprocess = false) {
     updateLoadingText('Đang xử lý AI...');
 
     let extractResult;
-
     if (forceReprocess) {
-      // Force re-extract
       const reExtractRes = await tbklFetch(`/documents/${documentId}/re-extract`, { method: 'POST' });
       extractResult = (await reExtractRes.json()).data;
     } else {
-      // Thử extract (sẽ trả cache nếu đã xử lý)
       const extractRes = await tbklFetch(`/documents/${documentId}/extract`, { method: 'POST' });
       extractResult = (await extractRes.json()).data;
     }
@@ -162,12 +249,12 @@ async function processEmail(forceReprocess = false) {
 
 async function tbklFetch(path, options = {}) {
   const headers = {
-    'X-API-Key': API_KEY,
+    'X-API-Key': state.config.apiKey,
     'X-Service-Name': SERVICE_NAME,
     ...options.headers,
   };
 
-  return fetch(`${TBKL_API_BASE}${path}`, {
+  return fetch(`${state.config.apiUrl}${path}`, {
     ...options,
     headers,
   });
@@ -201,7 +288,6 @@ function displayResults(docData, extractResult, documentId) {
   document.getElementById('email-sender').textContent = docData.coQuanBanHanh || '';
   document.getElementById('email-date').textContent = docData.ngayBanHanh || '';
 
-  // Parse extraction result
   const extraction = extractResult.extractionResult || extractResult.data || {};
   const isCached = extractResult._cached === true;
 
@@ -257,8 +343,6 @@ async function saveResult() {
   btn.textContent = '⏳ Đang lưu...';
   btn.disabled = true;
 
-  // TODO: Gọi API tạo tasks từ extraction result
-  // Hiện tại chỉ hiển thị confirm
   setTimeout(() => {
     btn.textContent = '✅ Đã lưu';
     setTimeout(() => {
@@ -289,7 +373,7 @@ function updateLoadingText(text) {
 }
 
 function showSection(name) {
-  ['loading', 'error', 'results', 'no-email'].forEach(id => {
+  ['loading', 'error', 'results', 'no-email', 'settings'].forEach(id => {
     document.getElementById(id).classList.add('hidden');
   });
   document.getElementById(name).classList.remove('hidden');

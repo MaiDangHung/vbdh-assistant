@@ -76,6 +76,30 @@
     <div id="no-email" class="section hidden">
       <p>📭 Vui lòng mở chi tiết 1 văn bản trên hệ thống QLVBDH trước khi sử dụng extension.</p>
     </div>
+
+    <!-- Settings (hidden by default) -->
+    <div id="settings" class="section hidden">
+      <div class="card">
+        <div class="card-title">⚙️ Cài đặt</div>
+        <div class="settings-form">
+          <label>API Server URL</label>
+          <input type="url" id="setting-api-url" placeholder="https://tbklhoatien.danangsite.com.vn/api/v1/ext">
+          
+          <label>API Key</label>
+          <input type="password" id="setting-api-key" placeholder="Nhập API Key...">
+          
+          <div class="settings-actions">
+            <button id="btn-save-settings" class="btn btn-primary">💾 Lưu cài đặt</button>
+            <button id="btn-cancel-settings" class="btn btn-secondary">Huỷ</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings toggle (luôn hiện ở cuối) -->
+    <div class="footer-actions">
+      <button id="btn-settings" class="btn-icon" title="Cài đặt">⚙️</button>
+    </div>
   </div>
 
   <script src="popup.js"></script>
