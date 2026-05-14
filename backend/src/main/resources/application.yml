@@ -15,10 +15,11 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
 
-# AI Service
+# AI Service (Python FastAPI)
 ai-service:
-  url: http://localhost:8000
+  url: http://ai-service:8000
   timeout: 120
+  max-retries: 1
 
 # CORS cho extension
 cors:

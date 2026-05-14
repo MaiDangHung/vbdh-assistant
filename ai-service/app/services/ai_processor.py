@@ -1,4 +1,4 @@
-"""AI Processor - Gọi AI model để xử lý văn bản"""
+"""AI Processor - Gọi GLM model qua Anthropic-compatible API (cùng tbkl-hoatien)"""
 
 import logging
 import httpx
@@ -26,14 +26,9 @@ NHIỆM VỤ:
 
 
 async def process_text(text: str, tasks: list) -> dict:
-    """
-    Gọi AI để xử lý văn bản
-    """
+    """Gọi AI để xử lý văn bản"""
     prompt = SUMMARY_PROMPT.format(text=text)
-
-    result = await call_ai(prompt)
-
-    # Parse response
+    result = await call_glm(prompt)
     summary, task_list = parse_response(result)
 
     return {
@@ -43,44 +38,49 @@ async def process_text(text: str, tasks: list) -> dict:
     }
 
 
-async def call_ai(prompt: str) -> str:
+async def call_glm(prompt: str) -> str:
     """
-    Gọi AI model qua OpenAI-compatible API
+    Gọi GLM model qua Anthropic-compatible API (z.ai)
+    Giống hệt cách tbkl-hoatien gọi AI
     """
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
-                f"{settings.ai_api_url}/chat/completions",
+                f"{settings.glm_base_url}/v1/messages",
                 headers={
-                    "Authorization": f"Bearer {settings.ai_api_key}",
+                    "x-api-key": settings.glm_api_key,
+                    "anthropic-version": "2023-06-01",
                     "Content-Type": "application/json",
                 },
                 json={
                     "model": settings.ai_model,
-                    "messages": [
-                        {"role": "system", "content": "Bạn là trợ lý xử lý văn bản điều hành của cơ quan nhà nước. Hãy trả lời bằng tiếng Việt."},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.3,
                     "max_tokens": 2000,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": f"Bạn là trợ lý xử lý văn bản điều hành của cơ quan nhà nước. Hãy trả lời bằng tiếng Việt.\n\n{prompt}",
+                        },
+                    ],
                 },
             )
             response.raise_for_status()
             data = response.json()
-            return data["choices"][0]["message"]["content"]
 
+            # Anthropic format: response.content[0].text
+            return data["content"][0]["text"]
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"GLM API HTTP error: {e.response.status_code} - {e.response.text}")
+        raise Exception(f"Lỗi gọi AI: HTTP {e.response.status_code}")
     except httpx.HTTPError as e:
-        logger.error(f"AI API error: {e}")
+        logger.error(f"GLM API error: {e}")
         raise Exception(f"Lỗi gọi AI service: {e}")
 
 
 def parse_response(response: str) -> tuple:
-    """
-    Parse AI response thành summary và tasks
-    """
+    """Parse AI response thành summary và tasks"""
     summary = ""
     tasks = []
-
     lines = response.split("\n")
     current_section = None
 
@@ -89,7 +89,6 @@ def parse_response(response: str) -> tuple:
 
         if "TÓM TẮT:" in line.upper() or "TÓM TẮT :" in line.upper():
             current_section = "summary"
-            # Lấy phần còn lại của dòng sau "TÓM TẮT:"
             rest = line.split(":", 1)[-1].strip()
             if rest:
                 summary += rest + " "

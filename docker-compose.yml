@@ -11,7 +11,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U vbdh -d vbdh_assistant"]
       interval: 5s
@@ -29,24 +29,26 @@ services:
       SPRING_DATASOURCE_PASSWORD: vbdh_secret
       AI_SERVICE_URL: http://ai-service:8000
     ports:
-      - "8080:8080"
+      - "8090:8080"
     depends_on:
       db:
         condition: service_healthy
       ai-service:
         condition: service_started
+    restart: unless-stopped
 
-  # AI Service (Python FastAPI)
+  # AI Service (Python FastAPI) - dùng chung GLM API với tbkl-hoatien
   ai-service:
     build:
       context: ./ai-service
       dockerfile: Dockerfile
     environment:
-      AI_API_URL: ${AI_API_URL:-http://localhost:11434/v1}
-      AI_API_KEY: ${AI_API_KEY:-ollama}
-      AI_MODEL: ${AI_MODEL:-glm-4}
+      GLM_API_KEY: ${GLM_API_KEY:?GLM_API_KEY not set}
+      GLM_BASE_URL: ${GLM_BASE_URL:-https://api.z.ai/api/anthropic}
+      AI_MODEL: ${AI_MODEL:-glm-4.5-air}
     ports:
-      - "8000:8000"
+      - "8001:8000"
+    restart: unless-stopped
 
 volumes:
   pgdata:
