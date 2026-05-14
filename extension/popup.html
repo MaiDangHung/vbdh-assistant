@@ -8,95 +8,32 @@
 </head>
 <body>
   <div class="container">
-    <!-- Header -->
     <div class="header">
       <h1>📋 Trợ lý văn bản điều hành</h1>
     </div>
 
-    <!-- Loading -->
-    <div id="loading" class="section hidden">
-      <div class="spinner"></div>
-      <p id="loading-text">Đang xử lý văn bản...</p>
-      <p class="loading-detail" id="loading-detail"></p>
+    <!-- Main view -->
+    <div id="main-view" class="section">
+      <p class="info-text">Click vào nút bên dưới để mở bảng điều khiển trên trang QLVBDH.</p>
+      <button id="btn-open" class="btn btn-primary">🔍 Mở bảng điều khiển</button>
     </div>
 
-    <!-- Error -->
-    <div id="error" class="section hidden">
-      <div class="error-icon">⚠️</div>
-      <p id="error-message">Có lỗi xảy ra</p>
-      <button id="btn-retry" class="btn btn-primary">Thử lại</button>
-    </div>
-
-    <!-- Results -->
-    <div id="results" class="section hidden">
-      <!-- Văn bản info -->
-      <div class="email-info">
-        <div class="email-subject" id="email-subject"></div>
-        <div class="email-meta">
-          <span id="email-sender"></span>
-          <span id="email-date"></span>
-        </div>
-      </div>
-
-      <!-- Cache indicator -->
-      <div id="cache-badge" class="cache-badge hidden">
-        ⚡ Dữ liệu cache
-      </div>
-
-      <!-- Summary -->
-      <div class="card">
-        <div class="card-title">📝 Tóm tắt nội dung</div>
-        <div class="card-content" id="summary"></div>
-      </div>
-
-      <!-- Tasks -->
-      <div class="card">
-        <div class="card-title">✅ Nhiệm vụ</div>
-        <div class="card-content" id="tasks">
-          <ul id="task-list"></ul>
-        </div>
-      </div>
-
-      <!-- Department suggestions -->
-      <div class="card">
-        <div class="card-title">🏢 Phòng ban đề xuất</div>
-        <div class="card-content" id="departments">
-          <ul id="dept-list"></ul>
-        </div>
-      </div>
-
-      <!-- Actions -->
-      <div class="actions">
-        <button id="btn-reprocess" class="btn btn-secondary">🔄 Xử lý lại</button>
-        <button id="btn-save" class="btn btn-primary">💾 Lưu</button>
-      </div>
-    </div>
-
-    <!-- No email -->
-    <div id="no-email" class="section hidden">
-      <p>📭 Vui lòng mở chi tiết 1 văn bản trên hệ thống QLVBDH trước khi sử dụng extension.</p>
-    </div>
-
-    <!-- Settings (hidden by default) -->
+    <!-- Settings -->
     <div id="settings" class="section hidden">
       <div class="card">
         <div class="card-title">⚙️ Cài đặt</div>
         <div class="settings-form">
           <label>API Server URL</label>
           <input type="url" id="setting-api-url" placeholder="https://tbklhoatien.danangsite.com.vn/api/v1/ext">
-          
           <label>API Key</label>
           <input type="password" id="setting-api-key" placeholder="Nhập API Key...">
-          
           <div class="settings-actions">
-            <button id="btn-save-settings" class="btn btn-primary">💾 Lưu cài đặt</button>
-            <button id="btn-cancel-settings" class="btn btn-secondary">Huỷ</button>
+            <button id="btn-save-settings" class="btn btn-primary">💾 Lưu</button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Settings toggle (luôn hiện ở cuối) -->
     <div class="footer-actions">
       <button id="btn-settings" class="btn-icon" title="Cài đặt">⚙️</button>
     </div>
