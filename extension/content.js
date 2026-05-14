@@ -3,11 +3,6 @@
  * 
  * Đọc dữ liệu văn bản từ React internal state của hệ thống QLVBDH
  * 
- * SECURITY:
- * - Chỉ chạy khi user click Extension icon (passive, không tự động)
- * - Không modify DOM của trang web
- * - Không gửi data đi ngoài Backend API được cấu hình
- * 
  * ARCHITECTURE:
  * - Content Script: ĐỌC data + FETCH file (cùng origin → không CORS)
  * - Popup: GỬI data lên Backend (extension context → không CORS)
@@ -17,29 +12,26 @@
 (function () {
   'use strict';
 
-  const RATE_LIMIT_MS = 1000; // 1 giây giữa mỗi request fetch file
-  const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB giới hạn
-  const FETCH_TIMEOUT_MS = 30000; // 30 giây timeout
+  const RATE_LIMIT_MS = 1000;
+  const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+  const FETCH_TIMEOUT_MS = 30000;
 
-  // Lắng nghe message từ popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'extractData') {
-      // Chỉ đọc React state, KHÔNG fetch file, KHÔNG gọi backend
       const reactData = extractReactData();
       if (!reactData) {
         sendResponse({ success: false, error: 'Không tìm thấy thông tin văn bản. Vui lòng mở chi tiết 1 văn bản.' });
       } else {
         sendResponse({ success: true, data: reactData });
       }
-      return false; // sync response
+      return false;
     }
 
     if (request.action === 'fetchFile') {
-      // Fetch 1 file cụ thể (cùng origin → không CORS)
       fetchSingleFile(request.fileUrl)
         .then(result => sendResponse(result))
         .catch(error => sendResponse({ success: false, error: error.message }));
-      return true; // async response
+      return true;
     }
 
     return false;
@@ -47,20 +39,43 @@
 
   /**
    * Trích xuất dữ liệu từ React fiber tree
-   * Chỉ đọc memory, KHÔNG gửi request nào
+   * Tìm đúng wrapper đang hiển thị chi tiết văn bản
    */
   function extractReactData() {
     try {
-      const wrapperInner = document.querySelector('.MuiCollapse-wrapperInner');
-      if (!wrapperInner) return null;
+      // Tìm tất cả wrapperInner đang hiển thị (height > 0) và có chứa file đính kèm
+      const wrappers = document.querySelectorAll('.MuiCollapse-wrapperInner');
+      let activeWrapper = null;
 
-      const keys = Object.keys(wrapperInner);
+      wrappers.forEach((w) => {
+        // Chỉ lấy wrapper đang hiển thị và có chứa thông tin văn bản
+        if (w.offsetHeight > 0 && w.querySelector('.file')) {
+          // Ưu tiên wrapper có nhiều thông tin hơn (có cả td.bold và .file)
+          if (w.querySelector('td.bold') && w.querySelector('.file__name')) {
+            activeWrapper = w;
+          }
+        }
+      });
+
+      // Fallback: tìm wrapper có .file và height > 0
+      if (!activeWrapper) {
+        wrappers.forEach((w) => {
+          if (w.offsetHeight > 0 && w.querySelector('.file')) {
+            activeWrapper = w;
+          }
+        });
+      }
+
+      if (!activeWrapper) return null;
+
+      // Tìm React fiber
+      const keys = Object.keys(activeWrapper);
       const reactKey = keys.find(k =>
         k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')
       );
       if (!reactKey) return null;
 
-      let fiber = wrapperInner[reactKey];
+      let fiber = activeWrapper[reactKey];
       let dataLabelValues = null;
       let filesData = null;
 
@@ -68,12 +83,14 @@
       while (fiber && depth < 30) {
         const props = fiber.memoizedProps;
         if (props) {
+          // Tìm data array (thông tin văn bản: label-value pairs)
           if (!dataLabelValues && Array.isArray(props.data)) {
             const hasLabel = props.data.every(item => item.label && 'value' in item);
             if (hasLabel && props.data.length > 5) {
               dataLabelValues = props.data;
             }
           }
+          // Tìm files array (danh sách file đính kèm)
           if (!filesData && Array.isArray(props.files) && props.files.length > 0) {
             const firstFile = props.files[0];
             if (firstFile.tenTep && firstFile.url) {
@@ -119,8 +136,7 @@
   }
 
   /**
-   * Fetch 1 file từ cùng origin (không CORS)
-   * Popup gọi lần lượt, có rate limit ở popup side
+   * Fetch 1 file từ cùng origin
    */
   async function fetchSingleFile(url) {
     try {
