@@ -122,8 +122,9 @@ function showMainView() {
   document.getElementById('status-text').textContent = '✅ Đã đăng nhập';
   document.getElementById('status-text').style.color = '#2e7d32';
 
-  // Load settings
-  document.getElementById('setting-api-url').value = state.config.apiBase;
+  // Status
+  document.getElementById('status-text').textContent = '✅ Đã đăng nhập';
+  document.getElementById('status-text').style.color = '#2e7d32';
 
   const stored = loadStorage();
   stored.then((s) => {
@@ -137,7 +138,6 @@ function bindEvents() {
   document.getElementById('btn-login').addEventListener('click', handleLogin);
   document.getElementById('btn-logout').addEventListener('click', handleLogout);
   document.getElementById('btn-open-panel').addEventListener('click', openPanel);
-  document.getElementById('btn-save-url').addEventListener('click', handleSaveUrl);
 
   // Toggle floating button
   document.getElementById('toggle-floating').addEventListener('change', async (e) => {
@@ -182,7 +182,7 @@ async function handleLogin() {
   btn.innerHTML = '<span class="btn-spinner"></span> Đang đăng nhập...';
 
   try {
-    const apiBase = state.config.apiBase || DEFAULT_API_BASE;
+    const apiBase = DEFAULT_API_BASE;
     const res = await fetch(`${apiBase}/api/v1/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -239,7 +239,7 @@ async function handleLogin() {
 
 async function handleLogout() {
   try {
-    const apiBase = state.config.apiBase || DEFAULT_API_BASE;
+    const apiBase = DEFAULT_API_BASE;
     await fetch(`${apiBase}/api/v1/auth/logout`, {
       method: 'POST',
       headers: {
@@ -295,24 +295,6 @@ async function openPanel() {
 
 // ===== SAVE URL =====
 
-async function handleSaveUrl() {
-  const url = document.getElementById('setting-api-url').value.trim();
-  if (!url) {
-    alert('Vui lòng nhập URL.');
-    return;
-  }
-
-  try {
-    new URL(url);
-  } catch (_) {
-    alert('URL không hợp lệ.');
-    return;
-  }
-
-  state.config.apiBase = url;
-  await new Promise(r => chrome.storage.local.set({ vbdh_api_url: url }, r));
-
-  const btn = document.getElementById('btn-save-url');
   btn.textContent = '✅ Đã lưu';
   setTimeout(() => { btn.textContent = '💾 Lưu cài đặt'; }, 1500);
 }
