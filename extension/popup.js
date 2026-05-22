@@ -1,58 +1,273 @@
 /**
- * Popup - VBDH Assistant
+ * Popup - VBDH Assistant v2.0
+ * Supports JWT login, role-based UI, floating button toggle
  */
 
-const DEFAULT_API_URL = 'https://tbklhoatien.danangsite.com.vn/api/v1/ext';
-const state = { config: null };
+const DEFAULT_API_BASE = 'https://tbklhoatien.danangsite.com.vn';
+
+const state = {
+  config: null,
+  auth: null,
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
-  state.config = await loadConfig();
+  // Load config and auth state
+  const stored = await loadStorage();
+  state.config = stored.config;
+  state.auth = stored.auth;
 
-  // Buttons
-  document.getElementById('btn-open').addEventListener('click', openModal);
-  document.getElementById('btn-settings').addEventListener('click', showSettings);
-  document.getElementById('btn-cancel-settings').addEventListener('click', hideSettings);
-  document.getElementById('btn-save-settings').addEventListener('click', saveSettings);
+  // Bind elements
+  bindEvents();
 
-  // Nếu chưa có API Key → hiện settings luôn
-  if (!state.config.apiKey) {
-    showSettings();
-    document.getElementById('btn-cancel-settings').style.display = 'none'; // Ẩn nút Huỷ nếu chưa cấu hình
+  // Show appropriate view
+  if (state.auth && state.auth.token) {
+    showMainView();
   } else {
-    hideSettings();
+    showLoginView();
   }
 });
 
-function loadConfig() {
+// ===== STORAGE =====
+
+function loadStorage() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['vbdh_api_url', 'vbdh_api_key'], (result) => {
-      resolve({
-        apiUrl: result.vbdh_api_url || DEFAULT_API_URL,
-        apiKey: result.vbdh_api_key || '',
-      });
-    });
+    chrome.storage.local.get(
+      ['vbdh_api_url', 'vbdh_api_key', 'vbdh_token', 'vbdh_refresh_token', 'vbdh_role', 'vbdh_user_id', 'vbdh_full_name', 'vbdh_username', 'vbdh_show_floating'],
+      (result) => {
+        resolve({
+          config: {
+            apiBase: result.vbdh_api_url || DEFAULT_API_BASE,
+            apiKey: result.vbdh_api_key || '',
+          },
+          auth: {
+            token: result.vbdh_token || '',
+            refreshToken: result.vbdh_refresh_token || '',
+            role: result.vbdh_role || '',
+            userId: result.vbdh_user_id || '',
+            fullName: result.vbdh_full_name || '',
+            username: result.vbdh_username || '',
+          },
+          showFloating: result.vbdh_show_floating !== false,
+        });
+      }
+    );
   });
 }
 
-async function openModal() {
-  if (!state.config.apiKey) {
-    showSettings();
+async function saveAuth(data) {
+  state.auth = {
+    token: data.token,
+    refreshToken: data.refreshToken,
+    role: data.role,
+    userId: data.userId,
+    fullName: data.fullName,
+    username: data.username,
+  };
+  return new Promise((resolve) => {
+    chrome.storage.local.set({
+      vbdh_token: data.token,
+      vbdh_refresh_token: data.refreshToken,
+      vbdh_role: data.role,
+      vbdh_user_id: data.userId,
+      vbdh_full_name: data.fullName,
+      vbdh_username: data.username,
+    }, resolve);
+  });
+}
+
+async function clearAuth() {
+  state.auth = { token: '', refreshToken: '', role: '', userId: '', fullName: '', username: '' };
+  return new Promise((resolve) => {
+    chrome.storage.local.remove([
+      'vbdh_token', 'vbdh_refresh_token', 'vbdh_role', 'vbdh_user_id', 'vbdh_full_name', 'vbdh_username',
+    ], resolve);
+  });
+}
+
+// ===== VIEW MANAGEMENT =====
+
+function showLoginView() {
+  document.getElementById('login-view').classList.remove('hidden');
+  document.getElementById('main-view').classList.add('hidden');
+  document.getElementById('status-text').textContent = '⚠️ Chưa đăng nhập';
+  document.getElementById('status-text').style.color = '#e65100';
+
+  // Focus username
+  setTimeout(() => document.getElementById('login-username').focus(), 100);
+}
+
+function showMainView() {
+  document.getElementById('login-view').classList.add('hidden');
+  document.getElementById('main-view').classList.remove('hidden');
+
+  // Populate user info
+  const auth = state.auth;
+  document.getElementById('user-name').textContent = auth.fullName || auth.username || '—';
+
+  const roleLabels = {
+    'ADMIN': '👑 Quản trị viên',
+    'DEPT_HEAD': '🏢 Trưởng phòng',
+    'STAFF': '📝 Chuyên viên',
+  };
+  document.getElementById('user-role').textContent = roleLabels[auth.role] || auth.role;
+
+  // Avatar color based on role
+  const avatarColors = { 'ADMIN': '#fff3e0', 'DEPT_HEAD': '#e8f5e9', 'STAFF': '#e3f2fd' };
+  const avatarIcons = { 'ADMIN': '👑', 'DEPT_HEAD': '🏢', 'STAFF': '📝' };
+  const avatarEl = document.getElementById('user-avatar');
+  avatarEl.style.background = avatarColors[auth.role] || '#e3f2fd';
+  avatarEl.textContent = avatarIcons[auth.role] || '👤';
+
+  // Status
+  document.getElementById('status-text').textContent = '✅ Đã đăng nhập';
+  document.getElementById('status-text').style.color = '#2e7d32';
+
+  // Load settings
+  document.getElementById('setting-api-url').value = state.config.apiBase;
+
+  const stored = loadStorage();
+  stored.then((s) => {
+    document.getElementById('toggle-floating').checked = s.showFloating;
+  });
+}
+
+// ===== EVENTS =====
+
+function bindEvents() {
+  document.getElementById('btn-login').addEventListener('click', handleLogin);
+  document.getElementById('btn-logout').addEventListener('click', handleLogout);
+  document.getElementById('btn-open-panel').addEventListener('click', openPanel);
+  document.getElementById('btn-save-url').addEventListener('click', handleSaveUrl);
+
+  // Toggle floating button
+  document.getElementById('toggle-floating').addEventListener('change', async (e) => {
+    await new Promise(r => chrome.storage.local.set({ vbdh_show_floating: e.target.checked }, r));
+    // Notify content script
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.url && tab.url.includes('qlvbdh.danang.gov.vn')) {
+        chrome.tabs.sendMessage(tab.id, { type: 'VBDH_TOGGLE_FLOATING', show: e.target.checked });
+      }
+    } catch (err) {
+      // Tab may not have content script yet
+    }
+  });
+
+  // Enter key on login form
+  document.getElementById('login-password').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleLogin();
+  });
+  document.getElementById('login-username').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('login-password').focus();
+  });
+}
+
+// ===== LOGIN =====
+
+async function handleLogin() {
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errorEl = document.getElementById('login-error');
+  const btn = document.getElementById('btn-login');
+
+  errorEl.classList.add('hidden');
+
+  if (!username || !password) {
+    errorEl.textContent = 'Vui lòng nhập tên đăng nhập và mật khẩu.';
+    errorEl.classList.remove('hidden');
     return;
   }
 
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Đang đăng nhập...';
+
+  try {
+    const apiBase = state.config.apiBase || DEFAULT_API_BASE;
+    const res = await fetch(`${apiBase}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!res.ok) {
+      let errMsg = 'Đăng nhập thất bại';
+      try {
+        const errJson = await res.json();
+        errMsg = errJson.message || errJson.error || errMsg;
+      } catch (_) {}
+      throw new Error(errMsg);
+    }
+
+    const json = await res.json();
+    const data = json.data || json; // Handle both { data: {...} } and direct {...}
+
+    if (!data.token) {
+      throw new Error('Phản hồi không hợp lệ từ server');
+    }
+
+    await saveAuth({
+      token: data.token,
+      refreshToken: data.refreshToken,
+      role: data.role,
+      userId: data.userId,
+      fullName: data.fullName,
+      username: data.username,
+    });
+
+    // Clear form
+    document.getElementById('login-password').value = '';
+
+    showMainView();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔑 Đăng nhập';
+  }
+}
+
+// ===== LOGOUT =====
+
+async function handleLogout() {
+  try {
+    const apiBase = state.config.apiBase || DEFAULT_API_BASE;
+    await fetch(`${apiBase}/api/v1/auth/logout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + state.auth.token,
+      },
+    });
+  } catch (_) {
+    // Ignore errors on logout
+  }
+
+  await clearAuth();
+  showLoginView();
+}
+
+// ===== OPEN PANEL =====
+
+async function openPanel() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab.url?.includes('qlvbdh.danang.gov.vn')) {
-    alert('Vui lòng mở trang QLVBDH trước!');
+  if (!tab.url || !tab.url.includes('qlvbdh.danang.gov.vn')) {
+    alert('Vui lòng mở trang QLVBDH (qlvbdh.danang.gov.vn) trước!');
     return;
   }
 
+  // Inject config and auth into page
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     world: 'MAIN',
-    func: (cfg) => { window.__vbdhConfig = cfg; },
-    args: [state.config],
+    func: (cfg, auth) => {
+      window.__vbdhConfig = cfg;
+      window.__vbdhAuth = auth;
+    },
+    args: [state.config, state.auth],
   });
 
+  // Inject the existing modal script
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     world: 'MAIN',
@@ -62,57 +277,27 @@ async function openModal() {
   window.close();
 }
 
-function showSettings() {
-  document.getElementById('setting-api-key').value = state.config.apiKey || '';
-  document.getElementById('main-view').classList.add('hidden');
-  document.getElementById('settings').classList.remove('hidden');
-}
+// ===== SAVE URL =====
 
-function hideSettings() {
-  document.getElementById('settings').classList.add('hidden');
-  document.getElementById('main-view').classList.remove('hidden');
-  updateStatus();
-}
-
-function updateStatus() {
-  const el = document.getElementById('status-text');
-  if (state.config.apiKey) {
-    el.textContent = '✅ Đã kết nối';
-    el.style.color = '#2e7d32';
-  } else {
-    el.textContent = '⚠️ Chưa cấu hình';
-    el.style.color = '#e65100';
+async function handleSaveUrl() {
+  const url = document.getElementById('setting-api-url').value.trim();
+  if (!url) {
+    alert('Vui lòng nhập URL.');
+    return;
   }
-}
 
-async function saveSettings() {
-  const apiKey = document.getElementById('setting-api-key').value.trim();
-  if (!apiKey) { alert('Nhập API Key.'); return; }
-
-  const btn = document.getElementById('btn-save-settings');
-  btn.textContent = '⏳ Kiểm tra...';
-  btn.disabled = true;
-
+  // Basic validation
   try {
-    const apiUrl = state.config.apiUrl || DEFAULT_API_URL;
-    const res = await fetch(`${apiUrl}/health`, {
-      headers: { 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const json = await res.json();
-    if (!json.data?.status) throw new Error('Response không hợp lệ');
-
-    await new Promise(r => chrome.storage.local.set({
-      vbdh_api_url: apiUrl,
-      vbdh_api_key: apiKey,
-    }, r));
-
-    state.config = { apiUrl, apiKey };
-    btn.textContent = '✅ Đã lưu';
-    setTimeout(() => { btn.textContent = '💾 Lưu & Kiểm tra'; btn.disabled = false; hideSettings(); }, 1000);
-  } catch (e) {
-    alert('Không kết nối được: ' + e.message);
-    btn.textContent = '💾 Lưu & Kiểm tra';
-    btn.disabled = false;
+    new URL(url);
+  } catch (_) {
+    alert('URL không hợp lệ.');
+    return;
   }
+
+  state.config.apiBase = url;
+  await new Promise(r => chrome.storage.local.set({ vbdh_api_url: url }, r));
+
+  const btn = document.getElementById('btn-save-url');
+  btn.textContent = '✅ Đã lưu';
+  setTimeout(() => { btn.textContent = '💾 Lưu URL'; }, 1500);
 }
