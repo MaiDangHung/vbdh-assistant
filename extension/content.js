@@ -1040,86 +1040,18 @@
 
   // ===== DOCUMENT EXTRACTION FROM PAGE =====
 
-  // content.js runs in extension context (not MAIN world).
-  // We inject a <script> into the page to extract docs from React internals,
-  // then pass results back via a custom DOM event.
   async function extractDocumentsFromPage() {
     return new Promise((resolve) => {
-      const requestId = 'vbdh_' + Date.now();
-
-      // Inject extraction code into the page
-      const script = document.createElement('script');
-      script.textContent = `
-        (function() {
-          function extractAllDocuments() {
-            const wrappers = document.querySelectorAll('.MuiCollapse-wrapperInner');
-            const docs = [];
-            wrappers.forEach(function(w) {
-              if (w.offsetHeight > 0 && w.querySelector('.file') && w.querySelector('td.bold') && w.querySelector('.file__name')) {
-                var info = {};
-                w.querySelectorAll('tr').forEach(function(row) {
-                  var cells = row.querySelectorAll('td');
-                  cells.forEach(function(cell, idx) {
-                    if (cell.classList.contains('bold') && idx + 1 < cells.length) {
-                      info[cell.textContent.trim()] = cells[idx + 1].textContent.trim();
-                    }
-                  });
-                });
-                var files = [];
-                var rk = Object.keys(w).find(function(k) { return k.startsWith('__reactFiber$'); });
-                if (!rk) return;
-                var fiber = w[rk];
-                var current = fiber.child && fiber.child.child && fiber.child.child.child;
-                if (!current) return;
-                var sibling = current;
-                var maxSearch = 100;
-                while (sibling && maxSearch-- > 0) {
-                  var p = sibling.memoizedProps;
-                  if (p && Array.isArray(p.files) && p.files.length > 0 && p.files[0].tenTep) {
-                    files = p.files.map(function(f) { return { name: f.tenTep, url: f.url, mimeType: f.kieuTep || 'application/pdf' }; });
-                    break;
-                  }
-                  if (sibling.sibling) sibling = sibling.sibling;
-                  else if (sibling.child) sibling = sibling.child;
-                  else { var pr = sibling.return; while (pr && !pr.sibling) pr = pr.return; sibling = pr && pr.sibling; }
-                }
-                if (files.length > 0) {
-                  docs.push({
-                    soKyHieu: info['Số, ký hiệu VB'] || '',
-                    trichYeu: info['Trích yếu'] || '',
-                    coQuanBanHanh: info['Cơ quan ban hành'] || '',
-                    ngayBanHanh: info['Ngày ban hành'] || '',
-                    loaiVanBan: info['Loại văn bản'] || '',
-                    nguoiKy: info['Người ký'] || '',
-                    soVanBan: info['Sổ văn bản'] || '',
-                    maDinhDanh: info['Mã định danh'] || '',
-                    files: files,
-                  });
-                }
-              }
-            });
-            return docs;
+      chrome.runtime.sendMessage(
+        { type: 'VBDH_EXTRACT_DOCS' },
+        (response) => {
+          if (chrome.runtime.lastError || !response || !response.docs) {
+            resolve([]);
+          } else {
+            resolve(response.docs);
           }
-
-          var docs = extractAllDocuments();
-          document.dispatchEvent(new CustomEvent('__vbdh_docs_result', { detail: { docs: docs } }));
-        })();
-      `;
-      document.head.appendChild(script);
-      script.remove();
-
-      // Listen for result
-      const handler = (e) => {
-        document.removeEventListener('__vbdh_docs_result', handler);
-        resolve(e.detail?.docs || []);
-      };
-      document.addEventListener('__vbdh_docs_result', handler);
-
-      // Timeout fallback
-      setTimeout(() => {
-        document.removeEventListener('__vbdh_docs_result', handler);
-        resolve([]);
-      }, 5000);
+        }
+      );
     });
   }
 
