@@ -99,6 +99,21 @@
     const reqBody = opts.body || null;
     const isForm = opts.formData || false;
 
+    // FormData cannot be passed via chrome.runtime.sendMessage (gets serialized)
+    // For form uploads, call fetch directly with JWT token from storage
+    if (isForm) {
+      const apiBase = config.apiBase || DEFAULT_API_BASE;
+      const fullUrl = path.startsWith('http') ? path : apiBase + path;
+      const headers = {};
+      if (auth && auth.token) {
+        headers['Authorization'] = 'Bearer ' + auth.token;
+      }
+      const res = await fetch(fullUrl, { method, headers, body: reqBody });
+      const contentType = res.headers.get('content-type') || '';
+      const data = contentType.includes('json') ? await res.json() : await res.text();
+      return { ok: res.ok, status: res.status, data };
+    }
+
     // For JWT auth, use the background service worker for auto-refresh
     if (authType === 'jwt') {
       return new Promise((resolve, reject) => {
@@ -128,19 +143,16 @@
       });
     }
 
-    // For API Key auth, do directly
+    // Fallback: direct JWT fetch (should not reach here normally)
     const apiBase = config.apiBase || DEFAULT_API_BASE;
     const fullUrl = path.startsWith('http') ? path : apiBase + path;
-    const headers = {
-      'X-API-Key': config.apiKey,
-      'X-Service-Name': 'vbdh-assistant',
-    };
-    if (!isForm) {
-      headers['Content-Type'] = 'application/json';
+    const headers = { 'Content-Type': 'application/json' };
+    if (auth && auth.token) {
+      headers['Authorization'] = 'Bearer ' + auth.token;
     }
     const fetchOpts = { method, headers };
     if (reqBody && method !== 'GET') {
-      fetchOpts.body = isForm ? reqBody : JSON.stringify(reqBody);
+      fetchOpts.body = JSON.stringify(reqBody);
     }
     const res = await fetch(fullUrl, fetchOpts);
     const data = await res.json();
