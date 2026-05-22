@@ -292,9 +292,3 @@ async function openPanel() {
 
   window.close();
 }
-
-// ===== SAVE URL =====
-
-  btn.textContent = '✅ Đã lưu';
-  setTimeout(() => { btn.textContent = '💾 Lưu cài đặt'; }, 1500);
-}
