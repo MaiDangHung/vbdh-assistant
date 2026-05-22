@@ -605,6 +605,93 @@
     }
   }
 
+  function formatTime(isoStr) {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleDateString('vi-VN') + ' ' + d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    } catch { return isoStr; }
+  }
+
+  async function showTaskHistory(taskId) {
+    const overlay = document.createElement('div');
+    overlay.id = 'vbdh-history-overlay';
+    overlay.innerHTML = `
+      <div class="vbdh-rp-overlay" style="z-index:1000001"></div>
+      <div class="vbdh-history-modal">
+        <div class="vbdh-history-header">
+          <h3>📋 Lịch sử nhiệm vụ</h3>
+          <button class="vbdh-rp-close" id="vbdh-history-close">&times;</button>
+        </div>
+        <div class="vbdh-history-body" id="vbdh-history-body">
+          <div class="vbdh-rp-loading-sm">Đang tải lịch sử...</div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#vbdh-history-close').addEventListener('click', () => overlay.remove());
+    overlay.querySelector('.vbdh-rp-overlay').addEventListener('click', () => overlay.remove());
+
+    const body = document.getElementById('vbdh-history-body');
+    try {
+      const [progressRes, assignmentsRes, reviewsRes] = await Promise.all([
+        apiRequest(`/api/v1/tasks/${taskId}/progress`).catch(() => null),
+        apiRequest(`/api/v1/tasks/${taskId}/assignments`).catch(() => null),
+        apiRequest(`/api/v1/tasks/${taskId}/reviews`).catch(() => null),
+      ]);
+
+      const progressList = (progressRes?.ok ? (progressRes.data?.data || progressRes.data) : []) || [];
+      const assignmentsList = (assignmentsRes?.ok ? (assignmentsRes.data?.data || assignmentsRes.data) : []) || [];
+      const reviewsList = (reviewsRes?.ok ? (reviewsRes.data?.data || reviewsRes.data) : []) || [];
+
+      let html = '';
+
+      if (assignmentsList.length > 0) {
+        html += '<div class="vbdh-history-section"><div class="vbdh-history-section-title">👥 Phân công</div>';
+        const statusLabels = { ASSIGNED: 'Đã giao', IN_PROGRESS: 'Đang làm', COMPLETED: 'Hoàn thành', SUBMITTED: 'Đã nộp', REJECTED: 'Từ chối' };
+        for (const a of assignmentsList) {
+          html += `<div class="vbdh-history-item">
+            <span class="vbdh-history-label">${escapeHtml(a.assigneeName || a.departmentName || '—')}</span>
+            <span class="vbdh-history-status">${statusLabels[a.status] || a.status || '—'}</span>
+            <span class="vbdh-history-time">${formatTime(a.createdAt)}</span>
+          </div>`;
+        }
+        html += '</div>';
+      }
+
+      if (progressList.length > 0) {
+        html += '<div class="vbdh-history-section"><div class="vbdh-history-section-title">📊 Tiến độ</div>';
+        for (const p of progressList) {
+          html += `<div class="vbdh-history-item">
+            <span class="vbdh-history-label">${escapeHtml(p.userName || p.userFullname || '—')}</span>
+            <span class="vbdh-history-progress">${p.percent}%</span>
+            ${p.note ? '<span class="vbdh-history-note">' + escapeHtml(p.note) + '</span>' : ''}
+            <span class="vbdh-history-time">${formatTime(p.createdAt)}</span>
+          </div>`;
+        }
+        html += '</div>';
+      }
+
+      if (reviewsList.length > 0) {
+        html += '<div class="vbdh-history-section"><div class="vbdh-history-section-title">📝 Phê duyệt</div>';
+        for (const r of reviewsList) {
+          const actionLabel = r.action === 'approve' ? '✅ Duyệt' : '❌ Từ chối';
+          html += `<div class="vbdh-history-item">
+            <span class="vbdh-history-label">${actionLabel}</span>
+            ${(r.note || r.reviewNote) ? '<span class="vbdh-history-note">' + escapeHtml(r.note || r.reviewNote) + '</span>' : ''}
+            <span class="vbdh-history-time">${formatTime(r.createdAt || r.reviewedAt)}</span>
+          </div>`;
+        }
+        html += '</div>';
+      }
+
+      if (!html) html = '<div class="vbdh-rp-empty">Chưa có lịch sử.</div>';
+      body.innerHTML = html;
+    } catch (err) {
+      body.innerHTML = '<div class="vbdh-rp-error">❌ ' + escapeHtml(err.message) + '</div>';
+    }
+  }
+
   // ===== DEPT HEAD PANEL =====
 
   async function loadDeptHeadPanel(body) {
@@ -696,10 +783,19 @@
             </div>
             ${assignHtml}
             ${completeHtml}
+            <button class="vbdh-rp-btn vbdh-rp-btn-sm vbdh-rp-btn-outline vbdh-rp-dh-history-btn" data-task-id="${t.id}" style="margin-top:4px">📋 Lịch sử</button>
           </div>
         `;
       }
       container.innerHTML = html;
+
+      // Bind history buttons for dept head
+      container.querySelectorAll('.vbdh-rp-dh-history-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+          const taskId = this.getAttribute('data-task-id');
+          showTaskHistory(taskId);
+        });
+      });
 
       // Bind assign buttons
       container.querySelectorAll('.vbdh-rp-assign-btn').forEach(btn => {
@@ -1358,6 +1454,30 @@
       .vbdh-rp-spinner { width: 32px; height: 32px; border: 3px solid #e8e8e8; border-top-color: #1a73e8; border-radius: 50%; animation: vbdh-rp-spin 0.8s linear infinite; margin: 0 auto 10px; }
       @keyframes vbdh-rp-spin { to { transform: rotate(360deg); } }
       .vbdh-rp-error { color: #c62828; padding: 10px; background: #ffebee; border-radius: 6px; font-size: 13px; }
+
+      /* History Modal */
+      .vbdh-history-modal {
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        width: 480px; max-height: 70vh; background: white; border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.2); z-index: 1000002; display: flex; flex-direction: column;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      .vbdh-history-header {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 16px 20px; border-bottom: 1px solid #eee;
+      }
+      .vbdh-history-header h3 { margin: 0; font-size: 16px; color: #333; }
+      .vbdh-history-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+      .vbdh-history-section { margin-bottom: 16px; }
+      .vbdh-history-section-title { font-size: 13px; font-weight: 700; color: #555; margin-bottom: 8px; text-transform: uppercase; }
+      .vbdh-history-item { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid #f5f5f5; font-size: 13px; }
+      .vbdh-history-label { font-weight: 500; color: #333; min-width: 100px; }
+      .vbdh-history-progress { font-weight: 700; color: #1a73e8; min-width: 40px; }
+      .vbdh-history-status { font-size: 12px; color: #666; background: #f0f0f0; padding: 2px 6px; border-radius: 4px; }
+      .vbdh-history-note { color: #888; flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .vbdh-history-time { color: #aaa; font-size: 11px; margin-left: auto; white-space: nowrap; }
+      .vbdh-rp-btn-outline { background: white; color: #1a73e8; border: 1px solid #1a73e8; }
+      .vbdh-rp-btn-outline:hover { background: #e8f0fe; }
     `;
   }
 })();
