@@ -826,6 +826,9 @@
     const body = modal.querySelector('#vbdh-body');
     body.innerHTML = '<div class="vbdh-loading"><div class="vbdh-spinner"></div><p>Đang phân tích văn bản...</p></div>';
 
+    // Load departments for extraction form
+    await ensureDepartmentsLoaded();
+
     const docs = extractAllDocuments();
     console.log('[VBDH] Found', docs.length, 'open documents');
 
@@ -1070,6 +1073,41 @@
     throw new Error('Quá thời gian chờ AI xử lý');
   }
 
+  // Store extracted tasks state for create-tasks API
+  const extractState = { tasks: [], departments: [] };
+
+  // Load departments for extraction form (if not already loaded)
+  async function ensureDepartmentsLoaded() {
+    if (extractState.departments.length > 0) return;
+    try {
+      const res = await apiGet('/api/v1/admin/departments');
+      extractState.departments = res.data?.data || res.data || [];
+    } catch (e) { console.warn('[VBDH] Failed to load departments:', e); }
+  }
+
+  // Match department name to department ID (fuzzy matching like tbkl)
+  function resolveDeptNameToId(name) {
+    if (!name) return '';
+    const normalized = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-z0-9\s]/g, '').trim();
+    let bestDept = null, bestScore = 0;
+    for (const dept of extractState.departments) {
+      const deptNorm = dept.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9\s]/g, '').trim();
+      if (deptNorm === normalized) { bestDept = dept; bestScore = 100; break; }
+      if (deptNorm.length >= 5 && normalized.length >= 5) {
+        if (deptNorm.includes(normalized) || normalized.includes(deptNorm)) {
+          if (70 > bestScore) { bestDept = dept; bestScore = 70; }
+        }
+      }
+      const nameWords = new Set(normalized.split(' ').filter(w => w.length > 2));
+      const deptWords = new Set(deptNorm.split(' ').filter(w => w.length > 2));
+      let overlap = 0;
+      for (const w of nameWords) { if (deptWords.has(w)) overlap++; }
+      const wordScore = Math.round((overlap / Math.max(nameWords.size, deptWords.size)) * 60);
+      if (wordScore > bestScore) { bestDept = dept; bestScore = wordScore; }
+    }
+    return (bestDept && bestScore >= 30) ? bestDept.id : '';
+  }
+
   function displayResult(data, statusEl, resultEl, documentId, apiUrl) {
     const extraction = data.extractionResult || {};
     const isCached = data._cached === true;
@@ -1077,31 +1115,72 @@
     statusEl.textContent = isCached ? '⚡ Cache' : '✅ Xong';
 
     const summary = extraction.summary || extraction.raw || '';
-    const tasks = extraction.tasks || [];
+    const rawTasks = extraction.tasks || [];
+
+    // Parse tasks into editable format with department matching
+    extractState.tasks = rawTasks.map((t, idx) => {
+      const taskTitle = typeof t === 'string' ? t : (t.title || '');
+      const taskDesc = (typeof t === 'object' && t.description) ? t.description : '';
+      const deptName = (typeof t === 'object' && t.department) ? t.department : '';
+      const deadline = (typeof t === 'object' && (t.deadline || t.dueDate)) ? (t.deadline || t.dueDate) : '';
+      const priority = (typeof t === 'object' && t.priority === 'urgent') ? 'CAO' : 'BINH_THUONG';
+      const deptId = resolveDeptNameToId(deptName);
+      return { idx, title: taskTitle, description: taskDesc, departmentName: deptName, department: deptId, priority, deadline, selected: true };
+    });
 
     let html = '';
     html += '<div class="vbdh-summary-line">📝 <b>Tóm tắt:</b> ' + (summary || 'Không có tóm tắt') + '</div>';
-    html += '<div class="vbdh-section-header"><span class="vbdh-section-title">📋 Nhiệm vụ & Phòng ban đề xuất</span>';
+    html += '<div class="vbdh-section-header"><span class="vbdh-section-title">📋 Nhiệm vụ trích xuất</span>';
     html += `<button class="vbdh-btn-reprocess" title="Xử lý lại" id="vbdh-reprocess-${documentId}">🔄</button></div>`;
 
-    if (tasks.length > 0) {
-      html += '<table class="vbdh-table"><thead><tr><th style="width:40px">STT</th><th>Nhiệm vụ</th><th style="width:200px">Phòng ban đề xuất</th></tr></thead><tbody>';
-      for (let i = 0; i < tasks.length; i++) {
-        const t = tasks[i];
-        const taskTitle = typeof t === 'string' ? t : (t.title || '');
-        const taskDesc = (typeof t === 'object' && t.description) ? t.description : '';
-        const dept = (typeof t === 'object' && t.department) ? t.department : '';
-        let taskCell = '<b>' + escapeHtml(taskTitle) + '</b>';
-        if (taskDesc && taskDesc !== taskTitle) taskCell += '<div class="vbdh-task-desc">' + escapeHtml(taskDesc) + '</div>';
-        let deptCell = dept ? '<span class="vbdh-dept-name">' + escapeHtml(dept) + '</span>' : '<span class="vbdh-dept-empty">—</span>';
-        html += `<tr><td>${i + 1}</td><td style="text-align:left">${taskCell}</td><td>${deptCell}</td></tr>`;
+    if (extractState.tasks.length > 0) {
+      html += '<div class="vbdh-extract-info">Chọn nhiệm vụ, điền thông tin, rồi bấm <b>"Tạo nhiệm vụ"</b></div>';
+      html += '<table class="vbdh-table vbdh-extract-table"><thead><tr>';
+      html += '<th style="width:36px">✅</th>';
+      html += '<th>Nhiệm vụ</th>';
+      html += '<th style="width:90px">Ưu tiên</th>';
+      html += '<th style="width:130px">Hạn xử lý</th>';
+      html += '<th style="width:140px">Phòng ban</th>';
+      html += '<th style="width:32px"></th>';
+      html += '</tr></thead><tbody>';
+      for (let i = 0; i < extractState.tasks.length; i++) {
+        const t = extractState.tasks[i];
+        html += `<tr data-task-idx="${i}">`;
+        html += `<td><input type="checkbox" class="vbdh-extract-check" data-idx="${i}" ${t.selected ? 'checked' : ''}></td>`;
+        html += `<td style="text-align:left"><b>${escapeHtml(t.title)}</b>`;
+        if (t.description && t.description !== t.title) html += `<div class="vbdh-task-desc">${escapeHtml(t.description)}</div>`;
+        html += '</td>';
+        // Priority select
+        html += `<td><select class="vbdh-extract-priority" data-idx="${i}" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;">`;
+        html += '<option value="CAO"' + (t.priority === 'CAO' ? ' selected' : '') + '>Cao</option>';
+        html += '<option value="BINH_THUONG"' + (t.priority === 'BINH_THUONG' ? ' selected' : '') + '>Bình thường</option>';
+        html += '<option value="THAP"' + (t.priority === 'THAP' ? ' selected' : '') + '>Thấp</option>';
+        html += '</select></td>';
+        // Deadline input
+        html += `<td><input type="date" class="vbdh-extract-deadline" data-idx="${i}" value="${t.deadline || ''}" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;"></td>`;
+        // Department select
+        html += `<td><select class="vbdh-extract-dept" data-idx="${i}" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;"><option value="">-- Phòng ban --</option>`;
+        for (const dept of extractState.departments) {
+          html += `<option value="${dept.id}"${t.department === dept.id ? ' selected' : ''}>${escapeHtml(dept.name)}</option>`;
+        }
+        html += '</select></td>';
+        // Delete button
+        html += `<td><button class="vbdh-extract-del" data-idx="${i}" title="Xóa" style="background:none;border:none;color:#ff4d4f;cursor:pointer;font-size:16px;">✕</button></td>`;
+        html += '</tr>';
       }
       html += '</tbody></table>';
+      // Create tasks button
+      html += '<div class="vbdh-extract-actions">';
+      html += `<button class="vbdh-btn vbdh-btn-primary" id="vbdh-btn-create-tasks-${documentId}">✅ Tạo nhiệm vụ (${extractState.tasks.filter(t => t.selected).length})</button>`;
+      html += '</div>';
     } else {
       html += '<div class="vbdh-no-data">Không có nhiệm vụ</div>';
     }
 
     resultEl.innerHTML = html;
+
+    // Bind events
+    bindExtractTableEvents(resultEl, documentId, apiUrl, statusEl);
 
     const reprocessBtn = document.getElementById(`vbdh-reprocess-${documentId}`);
     if (reprocessBtn) {
@@ -1121,6 +1200,87 @@
           resultEl.innerHTML = `<div class="vbdh-error">${e.message}</div>`;
         }
       };
+    }
+  }
+
+  function bindExtractTableEvents(resultEl, documentId, apiUrl, statusEl) {
+    // Checkbox toggle
+    resultEl.querySelectorAll('.vbdh-extract-check').forEach(cb => {
+      cb.addEventListener('change', e => {
+        const idx = parseInt(e.target.dataset.idx);
+        extractState.tasks[idx].selected = e.target.checked;
+        updateCreateButton(documentId);
+      });
+    });
+    // Priority change
+    resultEl.querySelectorAll('.vbdh-extract-priority').forEach(sel => {
+      sel.addEventListener('change', e => {
+        const idx = parseInt(e.target.dataset.idx);
+        extractState.tasks[idx].priority = e.target.value;
+      });
+    });
+    // Deadline change
+    resultEl.querySelectorAll('.vbdh-extract-deadline').forEach(inp => {
+      inp.addEventListener('change', e => {
+        const idx = parseInt(e.target.dataset.idx);
+        extractState.tasks[idx].deadline = e.target.value;
+      });
+    });
+    // Department change
+    resultEl.querySelectorAll('.vbdh-extract-dept').forEach(sel => {
+      sel.addEventListener('change', e => {
+        const idx = parseInt(e.target.dataset.idx);
+        extractState.tasks[idx].department = e.target.value;
+      });
+    });
+    // Delete row
+    resultEl.querySelectorAll('.vbdh-extract-del').forEach(btn => {
+      btn.addEventListener('click', e => {
+        const idx = parseInt(e.target.dataset.idx);
+        extractState.tasks.splice(idx, 1);
+        const row = e.target.closest('tr');
+        if (row) row.remove();
+        updateCreateButton(documentId);
+      });
+    });
+    // Create tasks button
+    const createBtn = document.getElementById(`vbdh-btn-create-tasks-${documentId}`);
+    if (createBtn) {
+      createBtn.addEventListener('click', () => handleCreateExtractTasks(documentId, apiUrl, statusEl, resultEl));
+    }
+  }
+
+  function updateCreateButton(documentId) {
+    const btn = document.getElementById(`vbdh-btn-create-tasks-${documentId}`);
+    if (!btn) return;
+    const count = extractState.tasks.filter(t => t.selected).length;
+    btn.textContent = `✅ Tạo nhiệm vụ (${count})`;
+    btn.disabled = count === 0;
+  }
+
+  async function handleCreateExtractTasks(documentId, apiUrl, statusEl, resultEl) {
+    const selectedTasks = extractState.tasks.filter(t => t.selected);
+    if (selectedTasks.length === 0) { alert('Chọn ít nhất 1 nhiệm vụ'); return; }
+
+    const btn = document.getElementById(`vbdh-btn-create-tasks-${documentId}`);
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Đang tạo...'; }
+
+    try {
+      const payload = selectedTasks.map(t => ({
+        title: t.title,
+        description: t.description,
+        departmentId: t.department || null,
+        priority: t.priority,
+        deadline: t.deadline || null,
+      }));
+      const res = await apiPost(`/api/v1/documents/${documentId}/create-tasks`, payload);
+      const created = res.data || [];
+      alert(`Đã tạo ${created.length} nhiệm vụ thành công!`);
+      resultEl.innerHTML = '<div class="vbdh-extract-success">✅ Đã tạo ' + created.length + ' nhiệm vụ từ văn bản này.</div>';
+      statusEl.textContent = '✅ Đã tạo NV';
+    } catch (e) {
+      alert('Tạo nhiệm vụ thất bại: ' + (e.message || 'Lỗi không xác định'));
+      if (btn) { btn.disabled = false; btn.textContent = `✅ Tạo nhiệm vụ (${selectedTasks.length})`; }
     }
   }
 
@@ -1233,6 +1393,11 @@
       .vbdh-dept-empty { color:#bbb; }
       .vbdh-task-desc { font-size:12px; color:#666; margin-top:4px; line-height:1.5; border-top:1px dashed #e0e0e0; padding-top:4px; }
       .vbdh-no-data { font-size:13px; color:#999; padding:8px 0; }
+      .vbdh-extract-info { font-size:12px; color:#666; margin-bottom:8px; padding:6px 10px; background:#f0f7ff; border-radius:4px; }
+      .vbdh-extract-table th { font-size:12px; }
+      .vbdh-extract-table td { vertical-align:middle; }
+      .vbdh-extract-actions { margin-top:12px; text-align:right; }
+      .vbdh-extract-success { text-align:center; padding:20px; font-size:14px; color:#2e7d32; background:#e8f5e9; border-radius:8px; }
       .vbdh-error { color:#c62828; padding:12px; background:#ffebee; border-radius:6px; font-size:13px; }
       .vbdh-result-loading { text-align:center; padding:20px; }
       .vbdh-arrow { font-size:11px; color:#888; width:14px; text-align:center; }
