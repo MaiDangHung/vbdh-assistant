@@ -107,7 +107,7 @@
           url: path,
           method: method,
           headers: isForm ? {} : { 'Content-Type': 'application/json' },
-          body: reqBody ? (isForm ? reqBody : JSON.stringify(reqBody)) : null,
+          body: reqBody || null,
           authType: 'jwt',
         }, (response) => {
           if (chrome.runtime.lastError) {
