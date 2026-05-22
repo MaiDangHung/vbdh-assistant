@@ -218,6 +218,14 @@ async function handleLogin() {
     document.getElementById('login-password').value = '';
 
     showMainView();
+
+    // Notify content script on QLVBDH tab to show floating button
+    try {
+      const [tab] = await chrome.tabs.query({ url: 'https://qlvbdh.danang.gov.vn/*' });
+      if (tab) {
+        chrome.tabs.sendMessage(tab.id, { type: 'VBDH_AUTH_CHANGED' });
+      }
+    } catch (e) { /* ignore */ }
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.classList.remove('hidden');
@@ -245,6 +253,14 @@ async function handleLogout() {
 
   await clearAuth();
   showLoginView();
+
+  // Notify content script to remove floating button
+  try {
+    const [tab] = await chrome.tabs.query({ url: 'https://qlvbdh.danang.gov.vn/*' });
+    if (tab) {
+      chrome.tabs.sendMessage(tab.id, { type: 'VBDH_AUTH_CHANGED' });
+    }
+  } catch (e) { /* ignore */ }
 }
 
 // ===== OPEN PANEL =====

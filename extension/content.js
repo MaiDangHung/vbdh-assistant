@@ -73,6 +73,21 @@
       }
       sendResponse({ ok: true });
     }
+    if (message.type === 'VBDH_AUTH_CHANGED') {
+      // Re-read storage when auth changes (login/logout)
+      loadStorage().then((stored) => {
+        auth = stored.auth;
+        config = stored.config;
+        showFloating = stored.showFloating;
+        if (auth && auth.token && showFloating) {
+          injectFloatingButton();
+        } else {
+          removeFloatingButton();
+        }
+        sendResponse({ ok: true });
+      });
+      return true; // async response
+    }
   });
 
   // ===== API HELPER (via background.js) =====
