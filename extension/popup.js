@@ -124,6 +124,7 @@ function showMainView() {
 
   // Load settings
   document.getElementById('setting-api-url').value = state.config.apiBase;
+  document.getElementById('setting-api-key').value = state.config.apiKey;
 
   const stored = loadStorage();
   stored.then((s) => {
@@ -297,6 +298,7 @@ async function openPanel() {
 
 async function handleSaveUrl() {
   const url = document.getElementById('setting-api-url').value.trim();
+  const apiKey = document.getElementById('setting-api-key').value.trim();
   if (!url) {
     alert('Vui lòng nhập URL.');
     return;
@@ -311,9 +313,10 @@ async function handleSaveUrl() {
   }
 
   state.config.apiBase = url;
-  await new Promise(r => chrome.storage.local.set({ vbdh_api_url: url }, r));
+  state.config.apiKey = apiKey;
+  await new Promise(r => chrome.storage.local.set({ vbdh_api_url: url, vbdh_api_key: apiKey }, r));
 
   const btn = document.getElementById('btn-save-url');
   btn.textContent = '✅ Đã lưu';
-  setTimeout(() => { btn.textContent = '💾 Lưu URL'; }, 1500);
+  setTimeout(() => { btn.textContent = '💾 Lưu cài đặt'; }, 1500);
 }
