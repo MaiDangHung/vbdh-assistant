@@ -74,10 +74,7 @@
       <div class="vbdh-container">
         <div class="vbdh-header">
           <h2>📋 Trợ lý văn bản điều hành <span class="vbdh-role-badge vbdh-role-${role.toLowerCase()}">${getRoleLabel(role)}</span></h2>
-          <div style="display:flex;gap:6px;align-items:center">
-            <button class="vbdh-btn vbdh-btn-sm" id="vbdh-btn-refresh" title="Làm mới trích xuất" style="display:none;font-size:12px">🔄 Làm mới</button>
-            <button class="vbdh-close" title="Đóng">&times;</button>
-          </div>
+          <button class="vbdh-close" title="Đóng">&times;</button>
         </div>
         ${tabsHtml}
         <div class="vbdh-body" id="vbdh-body">
@@ -106,14 +103,6 @@
       tab.onclick = () => switchTab(tab.dataset.tab);
     });
 
-    // Bind refresh button
-    const refreshBtn = modal.querySelector('#vbdh-btn-refresh');
-    if (refreshBtn) {
-      refreshBtn.onclick = () => {
-        window.__vbdhRefresh && window.__vbdhRefresh();
-      };
-    }
-
     // Show default view
     if (isAdminOrLeader) {
       window.__vbdhRefresh = () => processAllDocuments(modal);
@@ -131,7 +120,6 @@
   function switchTab(tabName) {
     const body = document.getElementById('vbdh-body');
     if (!body) return;
-    const refreshBtn = document.getElementById('vbdh-btn-refresh');
 
     // Update tab buttons
     document.querySelectorAll('.vbdh-tab').forEach(t => {
@@ -139,14 +127,11 @@
     });
 
     if (tabName === 'extract') {
-      // Show refresh button, only auto-process if not already done
-      if (refreshBtn) refreshBtn.style.display = 'inline-block';
+      // Only auto-process if not already done
       if (!body.querySelector('.vbdh-doc-header')) {
         window.__vbdhRefresh && window.__vbdhRefresh();
       }
     } else if (tabName === 'tasks') {
-      // Hide refresh button on tasks tab
-      if (refreshBtn) refreshBtn.style.display = 'none';
       loadTasksPanel(body);
     }
   }
