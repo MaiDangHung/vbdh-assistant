@@ -131,7 +131,18 @@ async function handleApiRequest(message, sender) {
     headers: reqHeaders,
   };
   if (body && method !== 'GET') {
-    fetchOpts.body = typeof body === 'string' ? body : JSON.stringify(body);
+    if (typeof body === 'string') {
+      fetchOpts.body = body;
+    } else if (body instanceof FormData) {
+      fetchOpts.body = body;
+      // Let fetch set Content-Type automatically for FormData
+      delete reqHeaders['Content-Type'];
+    } else {
+      fetchOpts.body = JSON.stringify(body);
+      if (!reqHeaders['Content-Type']) {
+        reqHeaders['Content-Type'] = 'application/json';
+      }
+    }
   }
 
   let res = await fetch(fullUrl, fetchOpts);

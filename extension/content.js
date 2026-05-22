@@ -1059,7 +1059,7 @@
 
   function generateCacheKey(doc, file) {
     const normalizedFileName = file.name.replace(/(\.signed)+/gi, '');
-    return [doc.maDinhDanh, doc.soKyHieu, doc.ngayBanHanh, doc.coQuanBanHanh, normalizedFileName].join('|||');
+    return [doc.maDinhDanh, normalizedFileName].join('|||');
   }
 
   function sleep(ms) {
