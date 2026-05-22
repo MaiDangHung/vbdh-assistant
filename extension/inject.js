@@ -4,8 +4,7 @@
  *
  * KHÔNG dùng chrome.* API ở đây!
  *
- * v2.0: Ưu tiên dùng JWT auth (window.__vbdhAuth) cho document extraction.
- *       Fallback sang API Key (window.__vbdhConfig.apiKey) nếu không có JWT.
+ * v2.1: Dùng JWT auth từ window.__vbdhAuth.
  */
 
 (function () {
@@ -21,15 +20,13 @@
 
   function getAuthHeaders() {
     const auth = window.__vbdhAuth;
-    const config = window.__vbdhConfig || {};
-
-    // For /api/v1/ext/* endpoints: still use API Key
     const headers = {
       'X-Service-Name': 'vbdh-assistant',
     };
 
-    if (config.apiKey) {
-      headers['X-API-Key'] = config.apiKey;
+    // JWT auth from login
+    if (auth && auth.token) {
+      headers['Authorization'] = 'Bearer ' + auth.token;
     }
 
     return headers;
@@ -262,14 +259,13 @@
   async function processSingleFile(doc, file, docIndex, fileIndex) {
     const statusEl = document.getElementById(`vbdh-status-${docIndex}-${fileIndex}`);
     const resultEl = document.getElementById(`vbdh-result-${docIndex}-${fileIndex}`);
-    const config = window.__vbdhConfig || {};
-    const apiUrl = config.apiUrl || DEFAULT_API_URL;
-    const apiKey = config.apiKey || '';
+    const auth = window.__vbdhAuth;
+    const apiUrl = getApiUrl();
 
-    if (!apiKey) {
+    if (!auth || !auth.token) {
       statusEl.className = 'vbdh-status vbdh-status-error';
-      statusEl.textContent = '❌ Chưa cấu hình API Key';
-      resultEl.innerHTML = '<div class="vbdh-error">Vui lòng cấu hình API Key trong extension.</div>';
+      statusEl.textContent = '❌ Chưa đăng nhập';
+      resultEl.innerHTML = '<div class="vbdh-error">Vui lòng đăng nhập qua extension.</div>';
       return;
     }
 
@@ -278,7 +274,7 @@
       statusEl.textContent = '⏳ Kiểm tra cache...';
 
       // Check cache
-      const cacheResult = await checkCache(apiUrl, apiKey, cacheKey);
+      const cacheResult = await checkCache(apiUrl, cacheKey);
       console.log('[VBDH] Cache check for', file.name, '→ found=', cacheResult.found, 'cacheKey=', cacheKey);
       if (cacheResult.found && cacheResult.documentId) {
         console.log('[VBDH] Cache hit for', file.name, 'documentId=', cacheResult.documentId, 'status=', cacheResult.status);
@@ -289,7 +285,7 @@
             statusEl.textContent = '⚡ Cache';
             displayResult(
               { extractionResult: cacheResult.extractionResult, status: cacheResult.status, _cached: true },
-              statusEl, resultEl, cacheResult.documentId, apiUrl, apiKey
+              statusEl, resultEl, cacheResult.documentId, apiUrl
             );
             return;
           }
@@ -298,8 +294,8 @@
         if (cacheResult.status === 'processing' || cacheResult.status === 'extracting') {
           statusEl.className = 'vbdh-status vbdh-status-pending';
           statusEl.textContent = '⏳ AI đang xử lý...';
-          const extractData = await pollUntilDone(apiUrl, apiKey, cacheResult.documentId, statusEl);
-          displayResult(extractData, statusEl, resultEl, cacheResult.documentId, apiUrl, apiKey);
+          const extractData = await pollUntilDone(apiUrl, cacheResult.documentId, statusEl);
+          displayResult(extractData, statusEl, resultEl, cacheResult.documentId, apiUrl);
           return;
         }
 
@@ -308,7 +304,7 @@
           statusEl.textContent = '⚡ Cache';
           displayResult(
             { extractionResult: cacheResult.extractionResult, status: cacheResult.status, _cached: true },
-            statusEl, resultEl, cacheResult.documentId, apiUrl, apiKey
+            statusEl, resultEl, cacheResult.documentId, apiUrl
           );
           return;
         }
@@ -335,7 +331,7 @@
 
       const uploadRes = await fetch(`${apiUrl}/documents/upload`, {
         method: 'POST',
-        headers: { 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
+        headers: getAuthHeaders(),
         body: formData,
       });
 
@@ -351,8 +347,8 @@
       // Poll until done
       statusEl.className = 'vbdh-status vbdh-status-pending';
       statusEl.textContent = '⏳ AI đang xử lý...';
-      const extractData = await pollUntilDone(apiUrl, apiKey, documentId, statusEl);
-      displayResult(extractData, statusEl, resultEl, documentId, apiUrl, apiKey);
+      const extractData = await pollUntilDone(apiUrl, documentId, statusEl);
+      displayResult(extractData, statusEl, resultEl, documentId, apiUrl);
 
     } catch (error) {
       console.error('[VBDH] Error:', error);
@@ -364,11 +360,11 @@
 
   // ===== CHECK CACHE =====
 
-  async function checkCache(apiUrl, apiKey, cacheKey) {
+  async function checkCache(apiUrl, cacheKey) {
     try {
       const res = await fetch(`${apiUrl}/documents/check-cache`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ cacheKey }),
       });
       if (!res.ok) return { found: false };
@@ -390,13 +386,13 @@
 
   // ===== POLL UNTIL DONE =====
 
-  async function pollUntilDone(apiUrl, apiKey, documentId, statusEl) {
+  async function pollUntilDone(apiUrl, documentId, statusEl) {
     for (let attempt = 0; attempt < 60; attempt++) {
       await sleep(3000);
       if (statusEl) statusEl.textContent = `⏳ AI xử lý (${attempt + 1}/60)...`;
       try {
         const res = await fetch(`${apiUrl}/documents/${documentId}/result`, {
-          headers: { 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
+          headers: getAuthHeaders(),
         });
         if (!res.ok) continue;
         const json = await res.json();
@@ -419,7 +415,7 @@
 
   // ===== DISPLAY RESULT =====
 
-  function displayResult(data, statusEl, resultEl, documentId, apiUrl, apiKey) {
+  function displayResult(data, statusEl, resultEl, documentId, apiUrl) {
     const extraction = data.extractionResult || {};
     const isCached = data._cached === true;
 
@@ -480,11 +476,11 @@
         try {
           const res = await fetch(`${apiUrl}/documents/${documentId}/re-extract`, {
             method: 'POST',
-            headers: { 'X-API-Key': apiKey, 'X-Service-Name': 'vbdh-assistant' },
+            headers: getAuthHeaders(),
           });
           await res.json();
-          const d = await pollUntilDone(apiUrl, apiKey, documentId, statusEl);
-          displayResult(d, statusEl, resultEl, documentId, apiUrl, apiKey);
+          const d = await pollUntilDone(apiUrl, documentId, statusEl);
+          displayResult(d, statusEl, resultEl, documentId, apiUrl);
         } catch (e) {
           statusEl.className = 'vbdh-status vbdh-status-error';
           statusEl.textContent = '❌ Lỗi';
@@ -527,7 +523,7 @@
 
   function generateCacheKey(doc, file) {
     const normalizedFileName = file.name.replace(/(\.signed)+/gi, '');
-    return [doc.maDinhDanh, doc.soKyHieu, doc.ngayBanHanh, doc.coQuanBanHanh, normalizedFileName].join('|||');
+    return [doc.maDinhDanh, normalizedFileName].join('|||');
   }
 
   // ===== CSS =====

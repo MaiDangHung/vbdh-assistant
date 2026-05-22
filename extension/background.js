@@ -31,6 +31,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Open modal panel — inject auth + inject.js into page
+  if (message.type === 'VBDH_OPEN_PANEL') {
+    const tabId = sender.tab ? sender.tab.id : null;
+    if (!tabId) {
+      sendResponse({ ok: false, error: 'No tab' });
+      return;
+    }
+    (async () => {
+      try {
+        // Set auth on window
+        await chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          world: 'MAIN',
+          func: (auth) => {
+            window.__vbdhAuth = auth;
+          },
+          args: [message.auth],
+        });
+        // Inject modal script
+        await chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          world: 'MAIN',
+          files: ['inject.js'],
+        });
+        sendResponse({ ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
   // Extract documents from QLVBDH page (MAIN world script execution)
   if (message.type === 'VBDH_EXTRACT_DOCS') {
     const tabId = sender.tab ? sender.tab.id : null;
