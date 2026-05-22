@@ -413,7 +413,7 @@
         const cacheKey = generateCacheKey(doc, file);
         const cacheRes = await apiRequest('/api/v1/ext/documents/check-cache', {
           method: 'POST',
-          authType: 'apikey',
+          authType: 'jwt',
           body: { cacheKey },
         });
 
@@ -440,7 +440,7 @@
 
           const uploadRes = await apiRequest('/api/v1/ext/documents/upload', {
             method: 'POST',
-            authType: 'apikey',
+            authType: 'jwt',
             formData: true,
             body: formData,
           });
@@ -457,7 +457,7 @@
         if (documentId && !extraction) {
           for (let attempt = 0; attempt < 40; attempt++) {
             await sleep(3000);
-            const resultRes = await apiRequest(`/api/v1/ext/documents/${documentId}/result`, { authType: 'apikey' });
+            const resultRes = await apiRequest(`/api/v1/ext/documents/${documentId}/result`, { authType: 'jwt' });
             if (resultRes.ok && resultRes.data) {
               const d = resultRes.data.data || resultRes.data;
               if (d.extractionResult && (d.status === 'completed' || d.status === 'extracted')) {

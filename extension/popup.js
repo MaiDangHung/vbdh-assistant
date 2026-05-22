@@ -124,7 +124,6 @@ function showMainView() {
 
   // Load settings
   document.getElementById('setting-api-url').value = state.config.apiBase;
-  document.getElementById('setting-api-key').value = state.config.apiKey;
 
   const stored = loadStorage();
   stored.then((s) => {
@@ -298,13 +297,11 @@ async function openPanel() {
 
 async function handleSaveUrl() {
   const url = document.getElementById('setting-api-url').value.trim();
-  const apiKey = document.getElementById('setting-api-key').value.trim();
   if (!url) {
     alert('Vui lòng nhập URL.');
     return;
   }
 
-  // Basic validation
   try {
     new URL(url);
   } catch (_) {
@@ -313,8 +310,7 @@ async function handleSaveUrl() {
   }
 
   state.config.apiBase = url;
-  state.config.apiKey = apiKey;
-  await new Promise(r => chrome.storage.local.set({ vbdh_api_url: url, vbdh_api_key: apiKey }, r));
+  await new Promise(r => chrome.storage.local.set({ vbdh_api_url: url }, r));
 
   const btn = document.getElementById('btn-save-url');
   btn.textContent = '✅ Đã lưu';
