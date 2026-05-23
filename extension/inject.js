@@ -822,6 +822,41 @@
   // EXTRACT DOCUMENTS (kept from original inject.js)
   // ===================================================================
 
+  // Store extracted tasks state for create-tasks API
+  const extractState = { tasks: [], departments: [] };
+
+  // Load departments for extraction form (if not already loaded)
+  async function ensureDepartmentsLoaded() {
+    if (extractState.departments.length > 0) return;
+    try {
+      const res = await apiGet('/api/v1/admin/departments');
+      extractState.departments = res.data?.data || res.data || [];
+    } catch (e) { console.warn('[VBDH] Failed to load departments:', e); }
+  }
+
+  // Match department name to department ID (fuzzy matching like tbkl)
+  function resolveDeptNameToId(name) {
+    if (!name) return '';
+    const normalized = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-z0-9\s]/g, '').trim();
+    let bestDept = null, bestScore = 0;
+    for (const dept of extractState.departments) {
+      const deptNorm = dept.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9\s]/g, '').trim();
+      if (deptNorm === normalized) { bestDept = dept; bestScore = 100; break; }
+      if (deptNorm.length >= 5 && normalized.length >= 5) {
+        if (deptNorm.includes(normalized) || normalized.includes(deptNorm)) {
+          if (70 > bestScore) { bestDept = dept; bestScore = 70; }
+        }
+      }
+      const nameWords = new Set(normalized.split(' ').filter(w => w.length > 2));
+      const deptWords = new Set(deptNorm.split(' ').filter(w => w.length > 2));
+      let overlap = 0;
+      for (const w of nameWords) { if (deptWords.has(w)) overlap++; }
+      const wordScore = Math.round((overlap / Math.max(nameWords.size, deptWords.size)) * 60);
+      if (wordScore > bestScore) { bestDept = dept; bestScore = wordScore; }
+    }
+    return (bestDept && bestScore >= 30) ? bestDept.id : '';
+  }
+
   async function processAllDocuments(modal) {
     const body = modal.querySelector('#vbdh-body');
     body.innerHTML = '<div class="vbdh-loading"><div class="vbdh-spinner"></div><p>Đang phân tích văn bản...</p></div>';
@@ -971,6 +1006,7 @@
   async function processSingleFile(doc, file, docIndex, fileIndex) {
     const statusEl = document.getElementById(`vbdh-status-${docIndex}-${fileIndex}`);
     const resultEl = document.getElementById(`vbdh-result-${docIndex}-${fileIndex}`);
+    if (!statusEl || !resultEl) return; // DOM not ready
     const a = window.__vbdhAuth;
     const apiUrl = getApiUrl();
 
@@ -1071,41 +1107,6 @@
       } catch (e) { if (e.message === 'AI xử lý thất bại') throw e; }
     }
     throw new Error('Quá thời gian chờ AI xử lý');
-  }
-
-  // Store extracted tasks state for create-tasks API
-  const extractState = { tasks: [], departments: [] };
-
-  // Load departments for extraction form (if not already loaded)
-  async function ensureDepartmentsLoaded() {
-    if (extractState.departments.length > 0) return;
-    try {
-      const res = await apiGet('/api/v1/admin/departments');
-      extractState.departments = res.data?.data || res.data || [];
-    } catch (e) { console.warn('[VBDH] Failed to load departments:', e); }
-  }
-
-  // Match department name to department ID (fuzzy matching like tbkl)
-  function resolveDeptNameToId(name) {
-    if (!name) return '';
-    const normalized = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-z0-9\s]/g, '').trim();
-    let bestDept = null, bestScore = 0;
-    for (const dept of extractState.departments) {
-      const deptNorm = dept.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9\s]/g, '').trim();
-      if (deptNorm === normalized) { bestDept = dept; bestScore = 100; break; }
-      if (deptNorm.length >= 5 && normalized.length >= 5) {
-        if (deptNorm.includes(normalized) || normalized.includes(deptNorm)) {
-          if (70 > bestScore) { bestDept = dept; bestScore = 70; }
-        }
-      }
-      const nameWords = new Set(normalized.split(' ').filter(w => w.length > 2));
-      const deptWords = new Set(deptNorm.split(' ').filter(w => w.length > 2));
-      let overlap = 0;
-      for (const w of nameWords) { if (deptWords.has(w)) overlap++; }
-      const wordScore = Math.round((overlap / Math.max(nameWords.size, deptWords.size)) * 60);
-      if (wordScore > bestScore) { bestDept = dept; bestScore = wordScore; }
-    }
-    return (bestDept && bestScore >= 30) ? bestDept.id : '';
   }
 
   function displayResult(data, statusEl, resultEl, documentId, apiUrl) {
