@@ -1125,7 +1125,9 @@
       const deptName = (typeof t === 'object' && t.department) ? t.department : '';
       const deadline = (typeof t === 'object' && (t.deadline || t.dueDate)) ? (t.deadline || t.dueDate) : '';
       const priority = (typeof t === 'object' && t.priority === 'urgent') ? 'CAO' : 'BINH_THUONG';
-      const deptId = resolveDeptNameToId(deptName) || (extractState.departments.length > 0 ? extractState.departments[0].id : '');
+      const DEFAULT_DEPT_CODE = 'VPHĐND';
+      const defaultDept = extractState.departments.find(d => d.code === DEFAULT_DEPT_CODE);
+      const deptId = resolveDeptNameToId(deptName) || (defaultDept ? defaultDept.id : (extractState.departments.length > 0 ? extractState.departments[0].id : ''));
       return { idx, title: taskTitle, description: taskDesc, departmentName: deptName, department: deptId, priority, deadline, selected: true };
     });
 
