@@ -1312,7 +1312,7 @@
 
   function generateCacheKey(doc, file) {
     const normalizedFileName = file.name.replace(/(\.signed)+/gi, '');
-    return [doc.maDinhDanh, normalizedFileName].join('|||');
+    return normalizedFileName;
   }
 
   function formatDate(v) {
