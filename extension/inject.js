@@ -21,6 +21,9 @@
   const isDeptHead = role === 'DEPT_HEAD';
   const isStaff = role === 'STAFF';
 
+  // State objects (must be declared before entry point)
+  const extractState = { tasks: [], departments: [] };
+
   // Entry point
   toggleVbdhModal();
 
@@ -821,9 +824,6 @@
   // ===================================================================
   // EXTRACT DOCUMENTS (kept from original inject.js)
   // ===================================================================
-
-  // Store extracted tasks state for create-tasks API
-  const extractState = { tasks: [], departments: [] };
 
   // Load departments for extraction form (if not already loaded)
   async function ensureDepartmentsLoaded() {
