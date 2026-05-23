@@ -1176,7 +1176,7 @@
       html += '</tbody></table>';
       // Create tasks button
       html += '<div class="vbdh-extract-actions">';
-      html += `<button class="vbdh-btn vbdh-btn-primary" id="vbdh-btn-create-tasks-${documentId}">✅ Tạo nhiệm vụ (${extractState.tasks.filter(t => t && t.selected).length})</button>`;
+      html += `<button class="vbdh-btn vbdh-btn-primary" id="vbdh-btn-create-tasks-${documentId}">✅ Tạo nhiệm vụ (${extractState.tasks.filter(t => t && t.selected && t._documentId === documentId).length})</button>`;
       html += '</div>';
     } else {
       html += '<div class="vbdh-no-data">Không có nhiệm vụ</div>';
@@ -1258,13 +1258,13 @@
   function updateCreateButton(documentId) {
     const btn = document.getElementById(`vbdh-btn-create-tasks-${documentId}`);
     if (!btn) return;
-    const count = extractState.tasks.filter(t => t && t.selected).length;
+    const count = extractState.tasks.filter(t => t && t.selected && t._documentId === documentId).length;
     btn.textContent = `✅ Tạo nhiệm vụ (${count})`;
     btn.disabled = count === 0;
   }
 
   async function handleCreateExtractTasks(documentId, apiUrl, statusEl, resultEl) {
-    const selectedTasks = extractState.tasks.filter(t => t && t.selected);
+    const selectedTasks = extractState.tasks.filter(t => t && t.selected && t._documentId === documentId);
     if (selectedTasks.length === 0) { alert('Chọn ít nhất 1 nhiệm vụ'); return; }
 
     const btn = document.getElementById(`vbdh-btn-create-tasks-${documentId}`);
