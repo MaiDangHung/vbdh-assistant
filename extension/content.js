@@ -151,6 +151,57 @@
       createFloatingButton();
       updateFloatingButton();
     }
+
+    // Initialize chatbot if enabled
+    if (currentAuth && currentAuth.token) {
+      initChatbot();
+    }
+  }
+
+  async function initChatbot() {
+    try {
+      // Check if chatbot is enabled for this user
+      const res = await fetch(`${DEFAULT_API_BASE}/api/v1/chatbot/status`, {
+        headers: { 'Authorization': `Bearer ${currentAuth.token}` }
+      });
+      const data = await res.json();
+      const chatbotEnabled = data?.data?.active || false;
+
+      if (!chatbotEnabled) return;
+
+      // Check local toggle setting
+      const chatbotToggleResult = await new Promise(resolve => {
+        chrome.storage.local.get(['vbdh_show_chatbot'], (r) => resolve(r.vbdh_show_chatbot !== false));
+      });
+
+      if (!chatbotToggleResult) return;
+
+      // Load chatbot script
+      if (!document.getElementById('vbdh-chatbot-script')) {
+        const script = document.createElement('script');
+        script.id = 'vbdh-chatbot-script';
+        script.src = chrome.runtime.getURL('chatbot.js');
+        document.documentElement.appendChild(script);
+      }
+
+      // Wait for chatbot.js to load then init
+      const waitForChatbot = setInterval(() => {
+        if (window.__vbdhChatbot) {
+          clearInterval(waitForChatbot);
+          window.__vbdhChatbot.init({
+            apiBase: DEFAULT_API_BASE,
+            token: currentAuth.token,
+            chatbotEnabled: true,
+          });
+          // Move floating button up to make room for chatbot button
+          if (floatingButton) {
+            floatingButton.style.bottom = '88px';
+          }
+        }
+      }, 100);
+    } catch (e) {
+      console.warn('[VBDH] Chatbot init failed:', e);
+    }
   }
 
   // Listen for toggle changes

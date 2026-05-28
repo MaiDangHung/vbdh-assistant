@@ -32,7 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 function loadStorage() {
   return new Promise((resolve) => {
     chrome.storage.local.get(
-      ['vbdh_api_url', 'vbdh_api_key', 'vbdh_token', 'vbdh_refresh_token', 'vbdh_role', 'vbdh_user_id', 'vbdh_full_name', 'vbdh_username', 'vbdh_show_floating'],
+      ['vbdh_api_url', 'vbdh_api_key', 'vbdh_token', 'vbdh_refresh_token', 'vbdh_role', 'vbdh_user_id', 'vbdh_full_name', 'vbdh_username', 'vbdh_show_floating', 'vbdh_show_chatbot'],
       (result) => {
         resolve({
           config: {
@@ -129,10 +129,39 @@ function showMainView() {
   const stored = loadStorage();
   stored.then((s) => {
     document.getElementById('toggle-floating').checked = s.showFloating;
+    document.getElementById('toggle-chatbot').checked = s.config?.chatbotEnabled !== false;
   });
+
+  // Check if chatbot is enabled for this user and show/hide the toggle
+  checkChatbotStatus();
 }
 
 // ===== EVENTS =====
+
+function bindEvents() {
+  document.getElementById('btn-login').addEventListener('click', handleLogin);
+  document.getElementById('btn-logout').addEventListener('click', handleLogout);
+  document.getElementById('btn-open-panel').addEventListener('click', openPanel);
+
+async function checkChatbotStatus() {
+  try {
+    const stored = await loadStorage();
+    const token = stored.auth?.token;
+    if (!token) return;
+
+    const res = await fetch(`${stored.config?.apiBase || DEFAULT_API_BASE}/api/v1/chatbot/status`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+    const chatbotEnabled = data?.data?.active || false;
+
+    if (chatbotEnabled) {
+      document.getElementById('chatbot-toggle-row').style.display = 'flex';
+    }
+  } catch (e) {
+    // Chatbot not available
+  }
+}
 
 function bindEvents() {
   document.getElementById('btn-login').addEventListener('click', handleLogin);
@@ -151,6 +180,18 @@ function bindEvents() {
     } catch (err) {
       // Tab may not have content script yet
     }
+  });
+
+  // Toggle chatbot
+  document.getElementById('toggle-chatbot').addEventListener('change', async (e) => {
+    await new Promise(r => chrome.storage.local.set({ vbdh_show_chatbot: e.target.checked }, r));
+    // Reload page to apply
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.url && tab.url.includes('qlvbdh.danang.gov.vn')) {
+        chrome.tabs.reload(tab.id);
+      }
+    } catch (err) {}
   });
 
   // Enter key on login form

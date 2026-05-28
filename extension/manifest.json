@@ -34,5 +34,11 @@
       "js": ["content.js"],
       "run_at": "document_idle"
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["chatbot.js"],
+      "matches": ["https://qlvbdh.danang.gov.vn/*"]
+    }
   ]
 }
