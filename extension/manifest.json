@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VBDH Assistant - Trợ lý văn bản điều hành",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "Tổng hợp nội dung văn bản, trích xuất nhiệm vụ và quản lý phân công phòng ban từ hệ thống QLVBDH",
   "permissions": [
     "activeTab",
@@ -30,7 +30,10 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://qlvbdh.danang.gov.vn/*"],
+      "matches": [
+        "https://qlvbdh.danang.gov.vn/*",
+        "https://tbklhoatien.danangsite.com.vn/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
@@ -38,7 +41,10 @@
   "web_accessible_resources": [
     {
       "resources": ["chatbot.js"],
-      "matches": ["https://qlvbdh.danang.gov.vn/*"]
+      "matches": [
+        "https://qlvbdh.danang.gov.vn/*",
+        "https://tbklhoatien.danangsite.com.vn/*"
+      ]
     }
   ]
 }

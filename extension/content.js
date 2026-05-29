@@ -144,16 +144,21 @@
 
   // ===== INIT =====
 
+  const isQlvbdh = location.hostname.includes('qlvbdh.danang.gov.vn');
+  const isTbkl = location.hostname.includes('tbklhoatien.danangsite.com.vn');
+
   async function init() {
     const stored = await refreshAuth();
     showFloating = stored.showFloating;
-    if (showFloating) {
+
+    // Floating button + inject panel: only on qlvbdh
+    if (isQlvbdh && showFloating) {
       createFloatingButton();
       updateFloatingButton();
     }
 
-    // Initialize chatbot if enabled
-    if (currentAuth && currentAuth.token) {
+    // Chatbot: both qlvbdh and tbklhoatien
+    if ((isQlvbdh || isTbkl) && currentAuth && currentAuth.token) {
       initChatbot();
     }
   }
@@ -206,7 +211,7 @@
 
   // Listen for toggle changes
   chrome.storage.onChanged.addListener((changes) => {
-    if (changes.vbdh_show_floating) {
+    if (changes.vbdh_show_floating && isQlvbdh) {
       showFloating = changes.vbdh_show_floating.newValue !== false;
       if (showFloating) {
         createFloatingButton();
