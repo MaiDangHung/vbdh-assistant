@@ -303,7 +303,7 @@
     const input = document.getElementById('chat-input');
     const sendBtn = document.getElementById('chat-send-btn');
     const text = input.value.trim();
-    if (!text || chatLoading || !activeConvId) return;
+    if (!text || chatLoading) return;
 
     input.value = '';
     input.style.height = 'auto';
@@ -345,6 +345,10 @@
       const res = await fetch(`${config.apiBase}/api/v1/chatbot/chat`, opts);
       const data = await res.json();
       if (data.data) {
+        // If backend auto-created conversation, save the ID
+        if (data.data.conversationId && !activeConvId) {
+          activeConvId = data.data.conversationId;
+        }
         appendMessage('assistant', data.data.content);
       } else {
         appendMessage('assistant', '❌ Không nhận được phản hồi. Vui lòng thử lại.');
