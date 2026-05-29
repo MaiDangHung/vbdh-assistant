@@ -122,10 +122,6 @@ function showMainView() {
   document.getElementById('status-text').textContent = '✅ Đã đăng nhập';
   document.getElementById('status-text').style.color = '#2e7d32';
 
-  // Status
-  document.getElementById('status-text').textContent = '✅ Đã đăng nhập';
-  document.getElementById('status-text').style.color = '#2e7d32';
-
   const stored = loadStorage();
   stored.then((s) => {
     document.getElementById('toggle-floating').checked = s.showFloating;
@@ -136,12 +132,7 @@ function showMainView() {
   checkChatbotStatus();
 }
 
-// ===== EVENTS =====
-
-function bindEvents() {
-  document.getElementById('btn-login').addEventListener('click', handleLogin);
-  document.getElementById('btn-logout').addEventListener('click', handleLogout);
-  document.getElementById('btn-open-panel').addEventListener('click', openPanel);
+// ===== CHATBOT STATUS =====
 
 async function checkChatbotStatus() {
   try {
@@ -162,6 +153,8 @@ async function checkChatbotStatus() {
     // Chatbot not available
   }
 }
+
+// ===== EVENTS =====
 
 function bindEvents() {
   document.getElementById('btn-login').addEventListener('click', handleLogin);
