@@ -51,6 +51,7 @@ function loadStorage() {
             username: result.vbdh_username || '',
           },
           showFloating: result.vbdh_show_floating !== false,
+          showChatbot: result.vbdh_show_chatbot !== false,
         });
       }
     );
@@ -128,7 +129,7 @@ function showMainView() {
   const stored = loadStorage();
   stored.then((s) => {
     document.getElementById('toggle-floating').checked = s.showFloating;
-    document.getElementById('toggle-chatbot').checked = s.config?.chatbotEnabled !== false;
+    document.getElementById('toggle-chatbot').checked = s.showChatbot;
   });
 
   // Check if chatbot is enabled for this user and show/hide the toggle

@@ -195,38 +195,18 @@
         return;
       }
 
-      // Load chatbot script
+      // Load chatbot script — pass config via data attributes
       if (!document.getElementById('vbdh-chatbot-script')) {
         console.log('[VBDH] Loading chatbot.js...');
         const script = document.createElement('script');
         script.id = 'vbdh-chatbot-script';
         script.src = chrome.runtime.getURL('chatbot.js');
-        script.onload = () => console.log('[VBDH] chatbot.js loaded, __vbdhChatbot:', !!window.__vbdhChatbot);
+        script.dataset.apiBase = DEFAULT_API_BASE;
+        script.dataset.token = currentAuth.token;
+        script.onload = () => console.log('[VBDH] chatbot.js loaded successfully');
         script.onerror = (e) => console.error('[VBDH] chatbot.js load FAILED:', e);
         document.documentElement.appendChild(script);
       }
-
-      // Wait for chatbot.js to load then init
-      let attempts = 0;
-      const waitForChatbot = setInterval(() => {
-        attempts++;
-        if (window.__vbdhChatbot) {
-          clearInterval(waitForChatbot);
-          console.log('[VBDH] Calling __vbdhChatbot.init() after', attempts, 'attempts');
-          window.__vbdhChatbot.init({
-            apiBase: DEFAULT_API_BASE,
-            token: currentAuth.token,
-            chatbotEnabled: true,
-          });
-          // Move floating button up to make room for chatbot button
-          if (floatingButton) {
-            floatingButton.style.bottom = '88px';
-          }
-        } else if (attempts > 50) {
-          clearInterval(waitForChatbot);
-          console.error('[VBDH] chatbot.js never loaded — __vbdhChatbot not found after 5s');
-        }
-      }, 100);
     } catch (e) {
       console.warn('[VBDH] Chatbot init failed:', e);
     }

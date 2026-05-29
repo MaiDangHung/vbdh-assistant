@@ -12,14 +12,24 @@
   let chatLoading = false;
   let config = { apiBase: '', token: '', chatbotEnabled: false };
 
-  // Load config from content script
-  function init(cfg) {
+  // Load config from script tag data attributes (set by content.js)
+  function initFromScript() {
+    const script = document.getElementById('vbdh-chatbot-script');
+    if (!script) return;
+    const cfg = {
+      apiBase: script.dataset.apiBase || '',
+      token: script.dataset.token || '',
+      chatbotEnabled: script.dataset.token ? true : false,
+    };
+    if (!cfg.chatbotEnabled || !cfg.token) return;
     config = cfg;
-    if (!cfg.chatbotEnabled) return;
     injectStyles();
     createWidget();
     loadConversations();
   }
+
+  // Auto-init when script loads
+  initFromScript();
 
   // ===== Styles =====
   function injectStyles() {
@@ -416,6 +426,5 @@
     return div.innerHTML;
   }
 
-  // ===== Public API =====
-  window.__vbdhChatbot = { init };
+  // ===== Auto-init complete =====
 })();
