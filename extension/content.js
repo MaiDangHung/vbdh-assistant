@@ -225,5 +225,28 @@
     }
   });
 
+  // Listen for chatbot toggle from popup (no page reload)
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === 'VBDH_TOGGLE_CHATBOT') {
+      if (msg.show) {
+        // Show chatbot — load chatbot.js if not already loaded
+        const existing = document.getElementById('vbdh-chatbot-script');
+        if (!existing) {
+          initChatbot();
+        } else {
+          // Already loaded, just show/hide the button
+          const btn = document.getElementById('vbdh-chatbot-btn');
+          if (btn) btn.style.display = '';
+        }
+      } else {
+        // Hide chatbot button and panel
+        const btn = document.getElementById('vbdh-chatbot-btn');
+        const panel = document.getElementById('vbdh-chatbot-panel');
+        if (btn) btn.style.display = 'none';
+        if (panel) panel.style.display = 'none';
+      }
+    }
+  });
+
   init();
 })();

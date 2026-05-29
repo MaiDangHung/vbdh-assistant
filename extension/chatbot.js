@@ -48,6 +48,11 @@
         color: #fff; font-size: 24px;
       }
       #vbdh-chatbot-btn:hover { transform: scale(1.1); box-shadow: 0 6px 20px rgba(22,119,255,0.5); }
+      #vbdh-chatbot-btn.loading { animation: chatbotPulse 1.5s infinite; }
+      @keyframes chatbotPulse {
+        0%, 100% { box-shadow: 0 4px 12px rgba(22,119,255,0.4); }
+        50% { box-shadow: 0 4px 20px rgba(22,119,255,0.8); }
+      }
 
       #vbdh-chatbot-panel {
         position: fixed; bottom: 88px; right: 24px; z-index: 99998;
@@ -165,7 +170,12 @@
 
   // ===== Widget Creation =====
   function createWidget() {
-    if (document.getElementById(CHATBOT_ID)) return;
+    if (document.getElementById('vbdh-chatbot-btn')) return;
+    // Mark widget as initialized
+    const marker = document.createElement('div');
+    marker.id = CHATBOT_ID;
+    marker.style.display = 'none';
+    document.body.appendChild(marker);
 
     // Floating button
     const btn = document.createElement('button');
@@ -287,14 +297,25 @@
   }
 
   // ===== Chat =====
+  let currentAbortController = null;
+
   async function sendMessage() {
     const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send-btn');
     const text = input.value.trim();
     if (!text || chatLoading || !activeConvId) return;
 
     input.value = '';
     input.style.height = 'auto';
     chatLoading = true;
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = '⏳';
+
+    // Show loading on floating button
+    const chatBtn = document.getElementById('vbdh-chatbot-btn');
+    if (chatBtn) chatBtn.classList.add('loading');
+    // Disable input
+    input.disabled = true;
 
     // Add user message to UI
     appendMessage('user', text);
@@ -302,19 +323,47 @@
     // Show typing indicator
     const typingEl = showTyping();
 
+    // Abort previous request if still pending
+    if (currentAbortController) {
+      currentAbortController.abort();
+    }
+    currentAbortController = new AbortController();
+
     try {
-      const res = await apiCall('POST', '/chat', {
-        conversationId: activeConvId,
-        message: text,
-      });
-      if (res.data) {
-        appendMessage('assistant', res.data.content);
+      const opts = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.token}`,
+        },
+        body: JSON.stringify({
+          conversationId: activeConvId,
+          message: text,
+        }),
+        signal: currentAbortController.signal,
+      };
+      const res = await fetch(`${config.apiBase}/api/v1/chatbot/chat`, opts);
+      const data = await res.json();
+      if (data.data) {
+        appendMessage('assistant', data.data.content);
+      } else {
+        appendMessage('assistant', '❌ Không nhận được phản hồi. Vui lòng thử lại.');
       }
     } catch (e) {
+      if (e.name === 'AbortError') return; // Previous request aborted, ignore
       appendMessage('assistant', '❌ Lỗi kết nối. Vui lòng thử lại.');
     } finally {
       typingEl.remove();
       chatLoading = false;
+      currentAbortController = null;
+      sendBtn.disabled = false;
+      sendBtn.innerHTML = '➤';
+      // Remove loading from floating button
+      const chatBtn = document.getElementById('vbdh-chatbot-btn');
+      if (chatBtn) chatBtn.classList.remove('loading');
+      // Re-enable input
+      const inp = document.getElementById('chat-input');
+      if (inp) inp.disabled = false;
     }
   }
 

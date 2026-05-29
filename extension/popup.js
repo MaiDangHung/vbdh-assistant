@@ -182,13 +182,19 @@ function bindEvents() {
   // Toggle chatbot
   document.getElementById('toggle-chatbot').addEventListener('change', async (e) => {
     await new Promise(r => chrome.storage.local.set({ vbdh_show_chatbot: e.target.checked }, r));
-    // Reload page to apply (works on both qlvbdh and tbklhoatien)
+    // Notify content script to show/hide chatbot (no page reload)
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab && tab.url) {
-        chrome.tabs.reload(tab.id);
+        chrome.tabs.sendMessage(tab.id, { type: 'VBDH_TOGGLE_CHATBOT', show: e.target.checked });
       }
-    } catch (err) {}
+    } catch (err) {
+      // Content script may not be ready — fallback to reload
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab) chrome.tabs.reload(tab.id);
+      } catch (e2) {}
+    }
   });
 
   // Enter key on login form
