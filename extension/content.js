@@ -188,21 +188,31 @@
       const chatbotToggleResult = await new Promise(resolve => {
         chrome.storage.local.get(['vbdh_show_chatbot'], (r) => resolve(r.vbdh_show_chatbot !== false));
       });
+      console.log('[VBDH] chatbot local toggle:', chatbotToggleResult);
 
-      if (!chatbotToggleResult) return;
+      if (!chatbotToggleResult) {
+        console.log('[VBDH] Chatbot disabled by local toggle — exiting');
+        return;
+      }
 
       // Load chatbot script
       if (!document.getElementById('vbdh-chatbot-script')) {
+        console.log('[VBDH] Loading chatbot.js...');
         const script = document.createElement('script');
         script.id = 'vbdh-chatbot-script';
         script.src = chrome.runtime.getURL('chatbot.js');
+        script.onload = () => console.log('[VBDH] chatbot.js loaded, __vbdhChatbot:', !!window.__vbdhChatbot);
+        script.onerror = (e) => console.error('[VBDH] chatbot.js load FAILED:', e);
         document.documentElement.appendChild(script);
       }
 
       // Wait for chatbot.js to load then init
+      let attempts = 0;
       const waitForChatbot = setInterval(() => {
+        attempts++;
         if (window.__vbdhChatbot) {
           clearInterval(waitForChatbot);
+          console.log('[VBDH] Calling __vbdhChatbot.init() after', attempts, 'attempts');
           window.__vbdhChatbot.init({
             apiBase: DEFAULT_API_BASE,
             token: currentAuth.token,
@@ -212,6 +222,9 @@
           if (floatingButton) {
             floatingButton.style.bottom = '88px';
           }
+        } else if (attempts > 50) {
+          clearInterval(waitForChatbot);
+          console.error('[VBDH] chatbot.js never loaded — __vbdhChatbot not found after 5s');
         }
       }, 100);
     } catch (e) {
