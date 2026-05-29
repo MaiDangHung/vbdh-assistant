@@ -11,8 +11,11 @@ const state = {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
+  console.log('[VBDH] popup.js loaded - v2.0.1-debug');
+
   // Load config and auth state
   const stored = await loadStorage();
+  console.log('[VBDH] stored auth:', stored.auth ? 'has token=' + !!stored.auth.token : 'null');
   state.config = stored.config;
   state.auth = stored.auth;
 

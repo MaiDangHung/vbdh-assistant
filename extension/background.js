@@ -5,6 +5,9 @@
 
 const DEFAULT_API_BASE = 'https://tbklhoatien.danangsite.com.vn';
 
+// Debug: confirm service worker loaded
+console.log('[VBDH] background.js loaded - v2.0.1-debug');
+
 // Listen for messages from content script and popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'VBDH_API_REQUEST') {
