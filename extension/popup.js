@@ -11,7 +11,7 @@ const state = {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
-  console.log('[VBDH] popup.js loaded - v2.0.1-debug');
+  console.log('[VBDH] popup.js loaded - v2.1.1-fix');
 
   // Load config and auth state
   const stored = await loadStorage();
@@ -182,10 +182,10 @@ function bindEvents() {
   // Toggle chatbot
   document.getElementById('toggle-chatbot').addEventListener('change', async (e) => {
     await new Promise(r => chrome.storage.local.set({ vbdh_show_chatbot: e.target.checked }, r));
-    // Reload page to apply
+    // Reload page to apply (works on both qlvbdh and tbklhoatien)
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab && tab.url && tab.url.includes('qlvbdh.danang.gov.vn')) {
+      if (tab && tab.url) {
         chrome.tabs.reload(tab.id);
       }
     } catch (err) {}
