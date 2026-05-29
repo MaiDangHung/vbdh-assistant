@@ -272,13 +272,13 @@
 
   async function selectConversation(convId) {
     activeConvId = convId;
+    showingConvList = false;
     try {
       const res = await apiCall('GET', `/conversations/${convId}/messages`);
       renderMessages(res.data || []);
     } catch (e) {
       renderMessages([]);
     }
-    showChatView();
   }
 
   async function deleteConversation(convId, e) {
@@ -463,7 +463,8 @@
   function showChatView() {
     showingConvList = false;
     if (activeConvId) {
-      selectConversation(activeConvId);
+      // Don't call selectConversation again — just render empty
+      renderMessages([]);
     } else {
       renderMessages([]);
     }
