@@ -151,6 +151,8 @@
     const stored = await refreshAuth();
     showFloating = stored.showFloating;
 
+    console.log('[VBDH] init() — domain:', location.hostname, '| isQlvbdh:', isQlvbdh, '| isTbkl:', isTbkl, '| hasToken:', !!currentAuth?.token);
+
     // Floating button + inject panel: only on qlvbdh
     if (isQlvbdh && showFloating) {
       createFloatingButton();
@@ -160,19 +162,27 @@
     // Chatbot: both qlvbdh and tbklhoatien
     if ((isQlvbdh || isTbkl) && currentAuth && currentAuth.token) {
       initChatbot();
+    } else {
+      console.log('[VBDH] Chatbot NOT started — isQlvbdh:', isQlvbdh, 'isTbkl:', isTbkl, 'hasToken:', !!currentAuth?.token);
     }
   }
 
   async function initChatbot() {
     try {
+      console.log('[VBDH] initChatbot() — checking status...');
       // Check if chatbot is enabled for this user
       const res = await fetch(`${DEFAULT_API_BASE}/api/v1/chatbot/status`, {
         headers: { 'Authorization': `Bearer ${currentAuth.token}` }
       });
+      console.log('[VBDH] chatbot/status response:', res.status);
       const data = await res.json();
+      console.log('[VBDH] chatbot/status data:', JSON.stringify(data));
       const chatbotEnabled = data?.data?.active || false;
 
-      if (!chatbotEnabled) return;
+      if (!chatbotEnabled) {
+        console.log('[VBDH] Chatbot disabled by server — exiting');
+        return;
+      }
 
       // Check local toggle setting
       const chatbotToggleResult = await new Promise(resolve => {
