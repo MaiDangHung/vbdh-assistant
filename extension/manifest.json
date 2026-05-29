@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VBDH Assistant - Trợ lý văn bản điều hành",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Tổng hợp nội dung văn bản, trích xuất nhiệm vụ và quản lý phân công phòng ban từ hệ thống QLVBDH",
   "permissions": [
     "activeTab",
@@ -13,7 +13,7 @@
     "https://tbklhoatien.danangsite.com.vn/*"
   ],
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "popup2.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
