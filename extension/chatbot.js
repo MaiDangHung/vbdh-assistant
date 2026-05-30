@@ -185,6 +185,15 @@
     btn.addEventListener('click', toggleChat);
     document.body.appendChild(btn);
 
+    // Adjust position if floating button exists (qlvbdh)
+    if (document.getElementById('vbdh-floating-btn')) {
+      btn.style.right = '84px';
+      // Also add CSS rule for panel when floating btn exists
+      const adjStyle = document.createElement('style');
+      adjStyle.textContent = '#vbdh-chatbot-panel { right: 84px !important; }';
+      document.head.appendChild(adjStyle);
+    }
+
     // Chat panel
     const panel = document.createElement('div');
     panel.id = 'vbdh-chatbot-panel';
