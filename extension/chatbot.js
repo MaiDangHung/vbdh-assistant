@@ -187,11 +187,15 @@
 
     // Adjust position if floating button exists (qlvbdh) — stack vertically above floating btn
     if (document.getElementById('vbdh-floating-btn')) {
-      btn.style.bottom = '84px';
-      // Also add CSS rule for panel when floating btn exists
+      console.log('[VBDH-DEBUG] chatbot: floating btn found, stacking vertically above it');
       const adjStyle = document.createElement('style');
-      adjStyle.textContent = '#vbdh-chatbot-panel { bottom: 148px !important; }';
+      adjStyle.textContent = `
+        #vbdh-chatbot-btn { bottom: 84px !important; }
+        #vbdh-chatbot-panel { bottom: 148px !important; }
+      `;
       document.head.appendChild(adjStyle);
+    } else {
+      console.log('[VBDH-DEBUG] chatbot: no floating btn, using default bottom position');
     }
 
     // Chat panel

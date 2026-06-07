@@ -908,9 +908,16 @@
 
   function extractAllDocuments() {
     const wrappers = document.querySelectorAll('.MuiCollapse-wrapperInner');
+    console.log('[VBDH-DEBUG] extractAllDocuments — found', wrappers.length, 'MuiCollapse-wrapperInner elements');
     const docs = [];
-    wrappers.forEach((w) => {
-      if (w.offsetHeight > 0 && w.querySelector('.file') && w.querySelector('td.bold') && w.querySelector('.file__name')) {
+    wrappers.forEach((w, wIdx) => {
+      const hasFile = !!w.querySelector('.file');
+      const hasBold = !!w.querySelector('td.bold');
+      const hasFileName = !!w.querySelector('.file__name');
+      const isVisible = w.offsetHeight > 0;
+      console.log(`[VBDH-DEBUG] wrapper[${wIdx}]: visible=${isVisible}, .file=${hasFile}, td.bold=${hasBold}, .file__name=${hasFileName}, offsetHeight=${w.offsetHeight}`);
+
+      if (isVisible && hasFile && hasBold && hasFileName) {
         const info = {};
         w.querySelectorAll('tr').forEach(row => {
           const cells = row.querySelectorAll('td');
@@ -920,7 +927,9 @@
             }
           });
         });
-        const files = extractFilesFromWrapper(w);
+        console.log(`[VBDH-DEBUG] wrapper[${wIdx}] info keys:`, Object.keys(info));
+        const files = extractFilesFromWrapper(w, wIdx);
+        console.log(`[VBDH-DEBUG] wrapper[${wIdx}] extracted ${files.length} files`);
         if (files.length > 0) {
           docs.push({
             soKyHieu: info['Số, ký hiệu VB'] || '',
@@ -933,30 +942,68 @@
             maDinhDanh: info['Mã định danh'] || '',
             files: files,
           });
+        } else {
+          console.warn(`[VBDH-DEBUG] wrapper[${wIdx}] has selectors but 0 files from React Fiber — info:`, info);
+        }
+      } else {
+        if (w.offsetHeight > 0) {
+          console.log(`[VBDH-DEBUG] wrapper[${wIdx}] VISIBLE but missing selectors — .file=${hasFile}, td.bold=${hasBold}, .file__name=${hasFileName}`);
+          // Dump child classes for debugging
+          const childClasses = [];
+          w.querySelectorAll('[class]').forEach(el => {
+            el.classList.forEach(c => { if (!childClasses.includes(c)) childClasses.push(c); });
+          });
+          console.log(`[VBDH-DEBUG] wrapper[${wIdx}] all CSS classes found:`, childClasses.slice(0, 30));
         }
       }
     });
+    console.log('[VBDH-DEBUG] extractAllDocuments total docs:', docs.length);
     return docs;
   }
 
-  function extractFilesFromWrapper(wrapper) {
+  function extractFilesFromWrapper(wrapper, wIdx) {
     let filesData = [];
     const rk = Object.keys(wrapper).find(k => k.startsWith('__reactFiber$'));
-    if (!rk) return [];
+    if (!rk) {
+      console.warn(`[VBDH-DEBUG] wrapper[${wIdx}] NO __reactFiber$ key found. Keys:`, Object.keys(wrapper).filter(k => k.startsWith('__')).slice(0, 10));
+      return [];
+    }
     let fiber = wrapper[rk];
+    console.log(`[VBDH-DEBUG] wrapper[${wIdx}] fiber found, traversing...`);
     let current = fiber.child?.child?.child;
-    if (!current) return [];
+    if (!current) {
+      console.warn(`[VBDH-DEBUG] wrapper[${wIdx}] fiber.child.child.child is null. fiber.child=`, !!fiber.child, 'fiber.child.child=', !!fiber.child?.child);
+      // Try alternative: fiber.child?.child
+      current = fiber.child?.child;
+      if (!current) {
+        console.warn(`[VBDH-DEBUG] wrapper[${wIdx}] fiber.child.child also null. fiber.child=`, !!fiber.child);
+        current = fiber.child;
+      }
+    }
     let sibling = current;
     let maxSearch = 100;
+    let searched = 0;
+    let foundPropsWithFiles = [];
     while (sibling && maxSearch-- > 0) {
+      searched++;
       const p = sibling.memoizedProps;
-      if (p && Array.isArray(p.files) && p.files.length > 0 && p.files[0].tenTep) {
-        filesData = p.files.map(f => ({ name: f.tenTep, url: f.url, mimeType: f.kieuTep || 'application/pdf' }));
-        break;
+      if (p) {
+        // Log any props that might contain file data
+        if (p.files && Array.isArray(p.files)) {
+          foundPropsWithFiles.push({ searchIdx: searched, filesCount: p.files.length, firstKey: p.files[0] ? Object.keys(p.files[0]).join(',') : 'empty' });
+        }
+        if (Array.isArray(p.files) && p.files.length > 0 && p.files[0].tenTep) {
+          filesData = p.files.map(f => ({ name: f.tenTep, url: f.url, mimeType: f.kieuTep || 'application/pdf' }));
+          console.log(`[VBDH-DEBUG] wrapper[${wIdx}] FOUND files at search #${searched}:`, filesData.map(f => f.name));
+          break;
+        }
       }
       if (sibling.sibling) sibling = sibling.sibling;
       else if (sibling.child) sibling = sibling.child;
       else { let pr = sibling.return; while (pr && !pr.sibling) pr = pr.return; sibling = pr?.sibling; }
+    }
+    if (filesData.length === 0) {
+      console.warn(`[VBDH-DEBUG] wrapper[${wIdx}] searched ${searched} nodes, no files found. Props with .files:`, foundPropsWithFiles);
     }
     return filesData;
   }
