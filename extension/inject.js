@@ -969,38 +969,22 @@
       return [];
     }
 
-    // === DEEP DUMP: dump first 30 fiber nodes to find file data ===
-    console.log(`[VBDH-DEBUG] wrapper[${wIdx}] Starting deep fiber dump...`);
+    // === BFS traverse to find files prop ===
     let fiber = wrapper[rk];
-
-    // BFS traverse entire fiber tree under this wrapper
     let queue = [fiber];
     let visited = 0;
-    let allPropsSummary = [];
-    const maxNodes = 200;
+    const maxNodes = 300;
 
     while (queue.length > 0 && visited < maxNodes) {
       let node = queue.shift();
       visited++;
       const p = node.memoizedProps;
-      if (p && typeof p === 'object') {
-        const pKeys = Object.keys(p).filter(k => p[k] !== null && p[k] !== undefined);
-        // Check for ANY array property that might be file data
-        for (const k of pKeys) {
-          if (Array.isArray(p[k]) && p[k].length > 0) {
-            const firstItem = p[k][0];
-            const itemKeys = firstItem && typeof firstItem === 'object' ? Object.keys(firstItem).join(',') : typeof firstItem;
-            allPropsSummary.push({ nodeIdx: visited, propKey: k, arrayLen: p[k].length, firstItemKeys: itemKeys, typeName: node.type?.name || node.type || '-' });
-          }
-        }
-        // Also check for object props that have url/tenTep
-        for (const k of pKeys) {
-          if (p[k] && typeof p[k] === 'object' && !Array.isArray(p[k]) && (p[k].tenTep || p[k].url || p[k].kieuTep)) {
-            allPropsSummary.push({ nodeIdx: visited, propKey: k, type: 'fileObject', keys: Object.keys(p[k]).join(',') });
-          }
-        }
+      if (p && Array.isArray(p.files) && p.files.length > 0 && p.files[0].tenTep) {
+        filesData = p.files.map(function(f) { return { name: f.tenTep, url: f.url, mimeType: f.kieuTep || 'application/pdf' }; });
+        console.log('[VBDH-DEBUG] wrapper[' + wIdx + '] FOUND ' + filesData.length + ' files at BFS node #' + visited + ':', filesData.map(function(f) { return f.name; }));
+        break;
       }
-      // Add children to queue (BFS)
+      // Add children to BFS queue
       let child = node.child;
       while (child) {
         queue.push(child);
@@ -1008,43 +992,8 @@
       }
     }
 
-    console.log(`[VBDH-DEBUG] wrapper[${wIdx}] BFS visited ${visited} nodes. Props with arrays:`, allPropsSummary);
-
-    // If we found nothing, dump first 5 nodes' prop keys for inspection
-    if (allPropsSummary.length === 0) {
-      queue = [fiber];
-      visited = 0;
-      let firstNodes = [];
-      while (queue.length > 0 && visited < 10) {
-        let node = queue.shift();
-        visited++;
-        const p = node.memoizedProps;
-        if (p && typeof p === 'object') {
-          firstNodes.push({ idx: visited, type: node.type?.name || node.type || '-', propKeys: Object.keys(p).slice(0, 15) });
-        }
-        let child = node.child;
-        while (child) {
-          queue.push(child);
-          child = child.sibling;
-        }
-      }
-      console.warn(`[VBDH-DEBUG] wrapper[${wIdx}] NO arrays found in ${visited} nodes. First 10 nodes:`, firstNodes);
-
-      // Also check __reactInternalInstance$ as alternative
-      const ik = Object.keys(wrapper).find(k => k.startsWith('__reactInternalInstance$'));
-      if (ik) {
-        console.log(`[VBDH-DEBUG] wrapper[${wIdx}] trying __reactInternalInstance$...`);
-        const inst = wrapper[ik];
-        // Try to find memoizedProps on the internal instance
-        let searchInst = inst;
-        for (let i = 0; i < 20 && searchInst; i++) {
-          if (searchInst.memoizedProps) {
-            const p2 = searchInst.memoizedProps;
-            console.log(`[VBDH-DEBUG] wrapper[${wIdx}] internalInst[${i}] props:`, Object.keys(p2).slice(0, 15));
-          }
-          searchInst = searchInst.child || searchInst._reactInternals;
-        }
-      }
+    if (filesData.length === 0) {
+      console.warn('[VBDH-DEBUG] wrapper[' + wIdx + '] BFS visited ' + visited + ' nodes, no files with tenTep found');
     }
 
     return filesData;

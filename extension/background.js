@@ -94,20 +94,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               var files = [];
               var rk = Object.keys(w).find(function(k) { return k.startsWith('__reactFiber$'); });
               if (!rk) return;
+              // BFS traverse fiber tree to find files
               var fiber = w[rk];
-              var current = fiber.child && fiber.child.child && fiber.child.child;
-              if (!current) return;
-              var sibling = current;
-              var maxSearch = 100;
-              while (sibling && maxSearch-- > 0) {
-                var p = sibling.memoizedProps;
+              var bfsQueue = [fiber];
+              var bfsVisited = 0;
+              var maxBfs = 300;
+              while (bfsQueue.length > 0 && bfsVisited < maxBfs) {
+                var node = bfsQueue.shift();
+                bfsVisited++;
+                var p = node.memoizedProps;
                 if (p && Array.isArray(p.files) && p.files.length > 0 && p.files[0].tenTep) {
                   files = p.files.map(function(f) { return { name: f.tenTep, url: f.url, mimeType: f.kieuTep || 'application/pdf' }; });
                   break;
                 }
-                if (sibling.sibling) sibling = sibling.sibling;
-                else if (sibling.child) sibling = sibling.child;
-                else { var pr = sibling.return; while (pr && !pr.sibling) pr = pr.return; sibling = pr && pr.sibling; }
+                var child = node.child;
+                while (child) {
+                  bfsQueue.push(child);
+                  child = child.sibling;
+                }
               }
               if (files.length > 0) {
                 docs.push({
