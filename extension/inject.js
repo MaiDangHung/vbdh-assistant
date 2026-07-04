@@ -864,7 +864,7 @@
     // Load departments for extraction form
     await ensureDepartmentsLoaded();
 
-    const docs = extractAllDocuments();
+    const docs = await extractAllDocuments();
     console.log('[VBDH] Found', docs.length, 'open documents');
 
     if (docs.length === 0) {
@@ -906,11 +906,12 @@
     }
   }
 
-  function extractAllDocuments() {
+  async function extractAllDocuments() {
     const wrappers = document.querySelectorAll('.MuiCollapse-wrapperInner');
     console.log('[VBDH-DEBUG] extractAllDocuments — found', wrappers.length, 'MuiCollapse-wrapperInner elements');
     const docs = [];
-    wrappers.forEach((w, wIdx) => {
+    for (let wIdx = 0; wIdx < wrappers.length; wIdx++) {
+      const w = wrappers[wIdx];
       const hasFile = !!w.querySelector('.file');
       const hasBold = !!w.querySelector('td.bold');
       const hasFileName = !!w.querySelector('.file__name');
@@ -918,7 +919,7 @@
       console.log(`[VBDH-DEBUG] wrapper[${wIdx}]: visible=${isVisible}, .file=${hasFile}, td.bold=${hasBold}, .file__name=${hasFileName}, offsetHeight=${w.offsetHeight}`);
 
       if (isVisible && hasBold && (hasFile && hasFileName)) {
-        // === VB ĐẾN flow: .file + .file__name selectors ===
+        // === VB ĐẾN flow ===
         const info = {};
         w.querySelectorAll('tr').forEach(row => {
           const cells = row.querySelectorAll('td');
@@ -947,7 +948,7 @@
           console.warn(`[VBDH-DEBUG] wrapper[${wIdx}] (VB đến) has selectors but 0 files from React Fiber — info:`, info);
         }
       } else if (isVisible && hasBold) {
-        // === VB ĐI flow: td.bold + span.link (no .file/.file__name) ===
+        // === VB ĐI flow: td.bold + span.link ===
         const info = {};
         w.querySelectorAll('tr').forEach(row => {
           const cells = row.querySelectorAll('td');
@@ -958,7 +959,7 @@
           });
         });
         console.log(`[VBDH-DEBUG] wrapper[${wIdx}] (VB đi) info keys:`, Object.keys(info));
-        const files = extractFilesFromWrapperVBDi(w, wIdx);
+        const files = await extractFilesFromWrapperVBDi(w, wIdx);
         console.log(`[VBDH-DEBUG] wrapper[${wIdx}] (VB đi) extracted ${files.length} files`);
         if (files.length > 0) {
           docs.push({
@@ -978,7 +979,6 @@
       } else {
         if (w.offsetHeight > 0) {
           console.log(`[VBDH-DEBUG] wrapper[${wIdx}] VISIBLE but missing selectors — .file=${hasFile}, td.bold=${hasBold}, .file__name=${hasFileName}`);
-          // Dump child classes for debugging
           const childClasses = [];
           w.querySelectorAll('[class]').forEach(el => {
             el.classList.forEach(c => { if (!childClasses.includes(c)) childClasses.push(c); });
@@ -986,7 +986,7 @@
           console.log(`[VBDH-DEBUG] wrapper[${wIdx}] all CSS classes found:`, childClasses.slice(0, 30));
         }
       }
-    });
+    }
     console.log('[VBDH-DEBUG] extractAllDocuments total docs:', docs.length);
     return docs;
   }
@@ -1029,53 +1029,64 @@
     return filesData;
   }
 
-  // === VB ĐI: extract files from span.link + item.id via React Fiber ===
+  // === VB ĐI: extract files from span.link via click interception ===
+  // Strategy: Override window.open temporarily, click each span.link, capture URL
   function extractFilesFromWrapperVBDi(wrapper, wIdx) {
     const links = wrapper.querySelectorAll('span.link');
     console.log('[VBDH-DEBUG] wrapper[' + wIdx + '] (VB đi) found ' + links.length + ' span.link elements');
     if (links.length === 0) return [];
 
-    // Get item.id from React Fiber (walk up from span.link)
-    let itemId = null;
-    let itemObject = null;
-    const firstLinkFiberKey = Object.keys(links[0]).find(k => k.startsWith('__reactFiber$'));
-    if (firstLinkFiberKey) {
-      let node = links[0][firstLinkFiberKey];
-      for (let lv = 0; lv < 10; lv++) {
-        if (!node || !node.return) break;
-        node = node.return;
-        const p = node.memoizedProps;
-        if (p && p.item && p.item.id) {
-          itemId = p.item.id;
-          itemObject = p.item;
-          console.log('[VBDH-DEBUG] wrapper[' + wIdx + '] (VB đi) found item.id at fiber lv' + (lv + 1) + ':', itemId);
-          break;
-        }
-      }
-    }
-
-    if (!itemId) {
-      console.warn('[VBDH-DEBUG] wrapper[' + wIdx + '] (VB đi) could not find item.id from React Fiber');
-      return [];
-    }
-
-    // Build download URL and file list
-    const baseUrl = 'https://qlvbdh.danang.gov.vn/filemanagement/downloadfule';
-    const filesData = [];
+    // Get file names from span.link textContent
+    const fileNames = [];
     links.forEach((link, idx) => {
       const name = (link.textContent || '').trim();
-      if (!name) return;
-      // Skip icon text (fa-eye etc.)
-      const url = baseUrl + '?fileid=' + itemId;
-      filesData.push({
-        name: name,
-        url: url,
-        mimeType: 'application/pdf'
-      });
-      console.log('[VBDH-DEBUG] wrapper[' + wIdx + '] (VB đi) file[' + idx + ']: ' + name + ' → ' + url);
+      if (name && name.length > 2) fileNames.push({ name: name, linkEl: link, idx: idx });
+    });
+    console.log('[VBDH-DEBUG] wrapper[' + wIdx + '] (VB đi) file names:', fileNames.map(f => f.name));
+
+    // Intercept window.open to capture download URLs
+    const capturedUrls = [];
+    const origWindowOpen = window.open;
+    window.open = function(url) {
+      if (url && url.includes('filemanagement')) {
+        console.log('[VBDH-DEBUG] (VB đi) captured download URL:', url);
+        capturedUrls.push(url);
+      }
+      return null; // block actual navigation
+    };
+
+    // Click each link sequentially with small delay
+    fileNames.forEach((f, i) => {
+      setTimeout(() => {
+        try {
+          f.linkEl.click();
+        } catch (e) {
+          console.warn('[VBDH-DEBUG] click error on link[' + i + ']:', e);
+        }
+      }, i * 300);
     });
 
-    return filesData;
+    // Wait for all clicks, then build result
+    const totalWait = fileNames.length * 300 + 1000;
+    // Return placeholder — actual URLs will be resolved asynchronously
+    // For now, return with empty URLs and fill in later via callback
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        window.open = origWindowOpen; // restore
+        console.log('[VBDH-DEBUG] wrapper[' + wIdx + '] (VB đi) captured ' + capturedUrls.length + ' URLs:', capturedUrls);
+
+        const filesData = fileNames.map((f, i) => ({
+          name: f.name,
+          url: capturedUrls[i] || '',
+          mimeType: 'application/pdf'
+        }));
+
+        // Filter out files without URL
+        const validFiles = filesData.filter(f => f.url);
+        console.log('[VBDH-DEBUG] wrapper[' + wIdx + '] (VB đi) valid files: ' + validFiles.length + '/' + filesData.length);
+        resolve(validFiles);
+      }, totalWait);
+    });
   }
 
   function buildDocAccordion(doc, docIndex) {

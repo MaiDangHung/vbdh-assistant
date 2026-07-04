@@ -8,6 +8,23 @@ const DEFAULT_API_BASE = 'https://tbklhoatien.danangsite.com.vn';
 // Debug: confirm service worker loaded
 console.log('[VBDH] background.js loaded - v2.0.1-debug');
 
+// ===== Capture download URLs from VB đi file clicks =====
+const capturedDownloadUrls = new Map(); // cacheKey -> [{name, url}]
+
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    if (details.url.includes('filemanagement/downloadfule') || details.url.includes('filemanagement/download')) {
+      const url = details.url;
+      const tabId = details.tabId;
+      console.log('[VBDH] Captured download URL:', url, 'tab:', tabId);
+      // Store latest URL for each tab
+      capturedDownloadUrls.set('tab_' + tabId, url);
+      capturedDownloadUrls.set('latest', url);
+    }
+  },
+  { urls: ['*://qlvbdh.danang.gov.vn/*'] }
+);
+
 // Listen for messages from content script and popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'VBDH_API_REQUEST') {
@@ -31,6 +48,71 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'VBDH_GET_CONFIG') {
     getConfig().then(sendResponse);
+    return true;
+  }
+
+  // Return captured download URL
+  if (message.type === 'VBDH_GET_DOWNLOAD_URL') {
+    const url = capturedDownloadUrls.get('latest') || capturedDownloadUrls.get('tab_' + (sender.tab ? sender.tab.id : -1)) || null;
+    capturedDownloadUrls.delete('latest'); // consume
+    sendResponse({ url: url });
+    return false;
+  }
+
+  // Capture download URL by clicking a span.link element
+  if (message.type === 'VBDH_CAPTURE_FILE_URLS') {
+    const tabId = sender.tab ? sender.tab.id : null;
+    if (!tabId) {
+      sendResponse({ urls: [] });
+      return false;
+    }
+    (async () => {
+      try {
+        // Execute in page: click each span.link, wait, collect URLs
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          world: 'MAIN',
+          func: (selector) => {
+            return new Promise((resolve) => {
+              const links = document.querySelectorAll(selector);
+              const urls = [];
+              let pending = links.length;
+              if (pending === 0) resolve(urls);
+
+              // Intercept window.open to catch download URLs
+              const origOpen = window.open;
+              window.open = function(url) {
+                if (url) urls.push(url);
+                pending--;
+                if (pending === 0) {
+                  window.open = origOpen;
+                  resolve(urls);
+                }
+                return null; // block actual open
+              };
+
+              // Click each link sequentially
+              links.forEach((link, i) => {
+                setTimeout(() => {
+                  link.click();
+                }, i * 200);
+              });
+
+              // Timeout fallback
+              setTimeout(() => {
+                window.open = origOpen;
+                resolve(urls);
+              }, links.length * 200 + 2000);
+            });
+          },
+          args: [message.selector || 'span.link']
+        });
+        const urls = results && results[0] && results[0].result ? results[0].result : [];
+        sendResponse({ urls: urls });
+      } catch (err) {
+        sendResponse({ urls: [], error: err.message });
+      }
+    })();
     return true;
   }
 

@@ -6,7 +6,9 @@
   "permissions": [
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "webRequest",
+    "tabs"
   ],
   "host_permissions": [
     "https://qlvbdh.danang.gov.vn/*",
