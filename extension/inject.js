@@ -2,8 +2,8 @@
  * inject.js - Chạy trong MAIN world của trang QLVBDH
  * 
  * 2 chế độ theo role:
- * - ADMIN/LEADER: Tab Trích xuất (accordion cũ) + Tab Nhiệm vụ (tạo/giao)
- * - DEPT_HEAD/STAFF: Chỉ Tab Nhiệm vụ (danh sách + actions)
+ * - ADMIN/CHIEF/DEPT_HEAD: Tab Trích xuất (accordion cũ) + Tab Nhiệm vụ (tạo/giao)
+ * - STAFF: Chỉ Tab Nhiệm vụ (danh sách + actions)
  *
  * KHÔNG dùng chrome.* API ở đây!
  * Dùng window.__vbdhAuth cho JWT auth.
@@ -17,7 +17,7 @@
 
   const auth = window.__vbdhAuth || {};
   const role = (auth.role || '').toUpperCase();
-  const isAdminOrLeader = role === 'ADMIN' || role === 'LEADER' || role === 'DEPT_HEAD';
+  const isAdminOrLeader = role === 'ADMIN' || role === 'CHIEF' || role === 'DEPT_HEAD';
   const isDeptHead = role === 'DEPT_HEAD';
   const isStaff = role === 'STAFF';
 
@@ -116,7 +116,7 @@
   }
 
   function getRoleLabel(r) {
-    const labels = { LEADER: 'Lãnh đạo', ADMIN: 'Chánh VP', DEPT_HEAD: 'Trưởng phòng', STAFF: 'Chuyên viên' };
+    const labels = { CHIEF: 'Lãnh đạo', ADMIN: 'Chánh VP', DEPT_HEAD: 'Trưởng phòng', STAFF: 'Chuyên viên' };
     return labels[r] || r;
   }
 
