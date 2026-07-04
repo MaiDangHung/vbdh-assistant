@@ -917,7 +917,8 @@
       const isVisible = w.offsetHeight > 0;
       console.log(`[VBDH-DEBUG] wrapper[${wIdx}]: visible=${isVisible}, .file=${hasFile}, td.bold=${hasBold}, .file__name=${hasFileName}, offsetHeight=${w.offsetHeight}`);
 
-      if (isVisible && hasFile && hasBold && hasFileName) {
+      if (isVisible && hasBold && (hasFile && hasFileName)) {
+        // === VB ĐẾN flow: .file + .file__name selectors ===
         const info = {};
         w.querySelectorAll('tr').forEach(row => {
           const cells = row.querySelectorAll('td');
@@ -927,9 +928,9 @@
             }
           });
         });
-        console.log(`[VBDH-DEBUG] wrapper[${wIdx}] info keys:`, Object.keys(info));
+        console.log(`[VBDH-DEBUG] wrapper[${wIdx}] (VB đến) info keys:`, Object.keys(info));
         const files = extractFilesFromWrapper(w, wIdx);
-        console.log(`[VBDH-DEBUG] wrapper[${wIdx}] extracted ${files.length} files`);
+        console.log(`[VBDH-DEBUG] wrapper[${wIdx}] (VB đến) extracted ${files.length} files`);
         if (files.length > 0) {
           docs.push({
             soKyHieu: info['Số, ký hiệu VB'] || '',
@@ -943,7 +944,36 @@
             files: files,
           });
         } else {
-          console.warn(`[VBDH-DEBUG] wrapper[${wIdx}] has selectors but 0 files from React Fiber — info:`, info);
+          console.warn(`[VBDH-DEBUG] wrapper[${wIdx}] (VB đến) has selectors but 0 files from React Fiber — info:`, info);
+        }
+      } else if (isVisible && hasBold) {
+        // === VB ĐI flow: td.bold + span.link (no .file/.file__name) ===
+        const info = {};
+        w.querySelectorAll('tr').forEach(row => {
+          const cells = row.querySelectorAll('td');
+          cells.forEach((cell, idx) => {
+            if (cell.classList.contains('bold') && idx + 1 < cells.length) {
+              info[cell.textContent.trim()] = cells[idx + 1].textContent.trim();
+            }
+          });
+        });
+        console.log(`[VBDH-DEBUG] wrapper[${wIdx}] (VB đi) info keys:`, Object.keys(info));
+        const files = extractFilesFromWrapperVBDi(w, wIdx);
+        console.log(`[VBDH-DEBUG] wrapper[${wIdx}] (VB đi) extracted ${files.length} files`);
+        if (files.length > 0) {
+          docs.push({
+            soKyHieu: info['Số, ký hiệu VB'] || '',
+            trichYeu: info['Trích yếu'] || '',
+            coQuanBanHanh: info['Cơ quan ban hành'] || '',
+            ngayBanHanh: info['Ngày ban hành'] || '',
+            loaiVanBan: info['Loại văn bản'] || '',
+            nguoiKy: info['Người ký'] || '',
+            soVanBan: info['Sổ văn bản'] || '',
+            maDinhDanh: info['Mã định danh'] || '',
+            files: files,
+          });
+        } else {
+          console.warn(`[VBDH-DEBUG] wrapper[${wIdx}] (VB đi) 0 files extracted — info:`, info);
         }
       } else {
         if (w.offsetHeight > 0) {
@@ -995,6 +1025,55 @@
     if (filesData.length === 0) {
       console.warn('[VBDH-DEBUG] wrapper[' + wIdx + '] BFS visited ' + visited + ' nodes, no files with tenTep found');
     }
+
+    return filesData;
+  }
+
+  // === VB ĐI: extract files from span.link + item.id via React Fiber ===
+  function extractFilesFromWrapperVBDi(wrapper, wIdx) {
+    const links = wrapper.querySelectorAll('span.link');
+    console.log('[VBDH-DEBUG] wrapper[' + wIdx + '] (VB đi) found ' + links.length + ' span.link elements');
+    if (links.length === 0) return [];
+
+    // Get item.id from React Fiber (walk up from span.link)
+    let itemId = null;
+    let itemObject = null;
+    const firstLinkFiberKey = Object.keys(links[0]).find(k => k.startsWith('__reactFiber$'));
+    if (firstLinkFiberKey) {
+      let node = links[0][firstLinkFiberKey];
+      for (let lv = 0; lv < 10; lv++) {
+        if (!node || !node.return) break;
+        node = node.return;
+        const p = node.memoizedProps;
+        if (p && p.item && p.item.id) {
+          itemId = p.item.id;
+          itemObject = p.item;
+          console.log('[VBDH-DEBUG] wrapper[' + wIdx + '] (VB đi) found item.id at fiber lv' + (lv + 1) + ':', itemId);
+          break;
+        }
+      }
+    }
+
+    if (!itemId) {
+      console.warn('[VBDH-DEBUG] wrapper[' + wIdx + '] (VB đi) could not find item.id from React Fiber');
+      return [];
+    }
+
+    // Build download URL and file list
+    const baseUrl = 'https://qlvbdh.danang.gov.vn/filemanagement/downloadfule';
+    const filesData = [];
+    links.forEach((link, idx) => {
+      const name = (link.textContent || '').trim();
+      if (!name) return;
+      // Skip icon text (fa-eye etc.)
+      const url = baseUrl + '?fileid=' + itemId;
+      filesData.push({
+        name: name,
+        url: url,
+        mimeType: 'application/pdf'
+      });
+      console.log('[VBDH-DEBUG] wrapper[' + wIdx + '] (VB đi) file[' + idx + ']: ' + name + ' → ' + url);
+    });
 
     return filesData;
   }
