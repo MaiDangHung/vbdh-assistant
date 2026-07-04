@@ -17,7 +17,7 @@
 
   const auth = window.__vbdhAuth || {};
   const role = (auth.role || '').toUpperCase();
-  const isAdminOrLeader = role === 'ADMIN' || role === 'LEADER';
+  const isAdminOrLeader = role === 'ADMIN' || role === 'LEADER' || role === 'DEPT_HEAD';
   const isDeptHead = role === 'DEPT_HEAD';
   const isStaff = role === 'STAFF';
 
