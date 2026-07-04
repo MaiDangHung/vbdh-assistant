@@ -962,14 +962,27 @@
         const files = await extractFilesFromWrapperVBDi(w, wIdx);
         console.log(`[VBDH-DEBUG] wrapper[${wIdx}] (VB đi) extracted ${files.length} files`);
         if (files.length > 0) {
+          // VB đi labels: Sổ văn bản, Người trình, Loại văn bản, Người ký,
+          // Số ký hiệu, Người soạn, Ngày ban hành, Số bản, Cơ quan ban hành,
+          // Số tờ, Số đi, Độ khẩn, Lĩnh vực văn bản, Nơi nhận, Chữ ký số,
+          // Hồ sơ công việc, Phòng soạn, Tệp đính kèm
           docs.push({
-            soKyHieu: info['Số, ký hiệu VB'] || '',
-            trichYeu: info['Trích yếu'] || '',
+            soKyHieu: info['Số ký hiệu'] || info['Số, ký hiệu VB'] || '',
+            trichYeu: info['Trích yếu'] || info['Nội dung'] || '',
             coQuanBanHanh: info['Cơ quan ban hành'] || '',
             ngayBanHanh: info['Ngày ban hành'] || '',
             loaiVanBan: info['Loại văn bản'] || '',
+            linhVucVanBan: info['Lĩnh vực văn bản'] || '',
             nguoiKy: info['Người ký'] || '',
+            nguoiTrinh: info['Người trình'] || '',
+            nguoiSoan: info['Người soạn'] || '',
             soVanBan: info['Sổ văn bản'] || '',
+            soDi: info['Số đi'] || '',
+            doKhan: info['Độ khẩn'] || '',
+            noiNhan: info['Nơi nhận'] || '',
+            phongSoan: info['Phòng soạn'] || '',
+            soBan: info['Số bản'] || '',
+            soTo: info['Số tờ'] || '',
             maDinhDanh: info['Mã định danh'] || '',
             files: files,
           });
