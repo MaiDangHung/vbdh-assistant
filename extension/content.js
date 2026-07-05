@@ -54,6 +54,49 @@
     }
   });
 
+  // ===== BRIDGE: Token refresh requests from inject.js (MAIN world) =====
+  // inject.js cannot access chrome.runtime, so it uses window.postMessage.
+  // We listen for its refresh request, forward to background.js, and reply.
+
+  window.addEventListener('message', async (event) => {
+    if (event.source !== window) return;
+    if (event.data.type !== 'VBDH_REFRESH_TOKEN_REQ') return;
+
+    const reqId = event.data.reqId;
+
+    try {
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: 'VBDH_REFRESH_TOKEN' }, (res) => {
+          resolve(res);
+        });
+      });
+
+      if (response && response.ok) {
+        // Also update the token in our local storage so content.js uses it too
+        await refreshAuth();
+        window.postMessage({
+          type: 'VBDH_TOKEN_REFRESHED',
+          reqId: reqId,
+          ok: true,
+          token: response.data?.token || '',
+        }, '*');
+      } else {
+        window.postMessage({
+          type: 'VBDH_TOKEN_REFRESHED',
+          reqId: reqId,
+          ok: false,
+        }, '*');
+      }
+    } catch (err) {
+      window.postMessage({
+        type: 'VBDH_TOKEN_REFRESHED',
+        reqId: reqId,
+        ok: false,
+        error: err.message,
+      }, '*');
+    }
+  });
+
   // ===== FLOATING BUTTON =====
 
   let floatingButton = null;
@@ -171,13 +214,24 @@
     try {
       console.log('[VBDH] initChatbot() — checking status...');
       // Check if chatbot is enabled for this user
-      const res = await fetch(`${DEFAULT_API_BASE}/api/v1/chatbot/status`, {
-        headers: { 'Authorization': `Bearer ${currentAuth.token}` }
+      // Use background.js to make the API call (auto-refreshes token on 401)
+      const statusResponse = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          type: 'VBDH_API_REQUEST',
+          url: `${DEFAULT_API_BASE}/api/v1/chatbot/status`,
+          method: 'GET',
+          authType: 'jwt',
+        }, (response) => {
+          resolve(response);
+        });
       });
-      console.log('[VBDH] chatbot/status response:', res.status);
-      const data = await res.json();
-      console.log('[VBDH] chatbot/status data:', JSON.stringify(data));
-      const chatbotEnabled = data?.data?.active || false;
+      if (!statusResponse || !statusResponse.ok) {
+        console.log('[VBDH] Chatbot status check failed:', statusResponse?.status);
+        return;
+      }
+      const statusData = statusResponse.data;
+      console.log('[VBDH] chatbot/status data:', JSON.stringify(statusData));
+      const chatbotEnabled = statusData?.data?.active || false;
 
       if (!chatbotEnabled) {
         console.log('[VBDH] Chatbot disabled by server — exiting');

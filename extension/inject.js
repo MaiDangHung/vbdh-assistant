@@ -41,6 +41,66 @@
   function getApiUrl() { return DEFAULT_API_URL; }
   function getApiBase() { return DEFAULT_API_BASE; }
 
+  // ===== FETCH WITH AUTO TOKEN REFRESH =====
+  // inject.js runs in MAIN world — NO access to chrome.runtime.
+  // We use window.postMessage to ask content.js (ISOLATED world) to refresh token.
+  // content.js bridges to background.js which does the actual refresh.
+
+  async function refreshJwtToken() {
+    return new Promise((resolve) => {
+      const reqId = 'refresh_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+      const handler = (event) => {
+        if (event.source !== window) return;
+        if (event.data.type === 'VBDH_TOKEN_REFRESHED' && event.data.reqId === reqId) {
+          window.removeEventListener('message', handler);
+          if (event.data.ok && event.data.token) {
+            // Update auth state
+            if (window.__vbdhAuth) {
+              window.__vbdhAuth.token = event.data.token;
+            }
+            resolve(true);
+          } else {
+            resolve(false);
+          }
+        }
+      };
+      window.addEventListener('message', handler);
+      window.postMessage({ type: 'VBDH_REFRESH_TOKEN_REQ', reqId }, '*');
+      // Timeout after 10s
+      setTimeout(() => {
+        window.removeEventListener('message', handler);
+        resolve(false);
+      }, 10000);
+    });
+  }
+
+  async function fetchWithRefresh(url, options) {
+    let res = await fetch(url, options);
+    if (res.status === 401) {
+      // Try to refresh token via content.js → background.js
+      const refreshed = await refreshJwtToken();
+      if (refreshed) {
+        // Rebuild headers with new token and retry
+        const newHeaders = getAuthHeaders();
+        if (options && options.headers) {
+          // Merge — preserve Content-Type etc, override Authorization
+          const merged = { ...options.headers };
+          // Strip old auth headers
+          delete merged['Authorization'];
+          delete merged['authorization'];
+          // Add fresh ones from getAuthHeaders()
+          Object.assign(merged, newHeaders);
+          options.headers = merged;
+        } else {
+          options = options || {};
+          options.headers = newHeaders;
+        }
+        res = await fetch(url, options);
+      }
+    }
+    return res;
+  }
+
   // ===== TOGGLE MODAL =====
 
   function toggleVbdhModal() {
@@ -144,13 +204,13 @@
   // ===================================================================
 
   async function apiGet(path) {
-    const res = await fetch(getApiBase() + path, { headers: getAuthHeaders() });
+    const res = await fetchWithRefresh(getApiBase() + path, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
   }
 
   async function apiPost(path, body) {
-    const res = await fetch(getApiBase() + path, {
+    const res = await fetchWithRefresh(getApiBase() + path, {
       method: 'POST',
       headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -163,7 +223,7 @@
   }
 
   async function apiPut(path, body) {
-    const res = await fetch(getApiBase() + path, {
+    const res = await fetchWithRefresh(getApiBase() + path, {
       method: 'PUT',
       headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
@@ -173,7 +233,7 @@
   }
 
   async function apiDelete(path) {
-    const res = await fetch(getApiBase() + path, {
+    const res = await fetchWithRefresh(getApiBase() + path, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });
@@ -899,8 +959,15 @@
     });
 
     for (let i = 0; i < docs.length; i++) {
-      for (let j = 0; j < docs[i].files.length; j++) {
-        await processSingleFile(docs[i], docs[i].files[j], i, j);
+      const isThongBao = docs[i].loaiVanBan === 'Thông báo';
+      if (isThongBao) {
+        // Flow: download files → upload → AI → tasks
+        for (let j = 0; j < docs[i].files.length; j++) {
+          await processSingleFile(docs[i], docs[i].files[j], i, j);
+        }
+      } else {
+        // Non-ThongBao: create 1 task directly with title/description = trichYeu
+        processNonThongBaoDoc(docs[i], i);
       }
       updateDocTaskBadge(docs, i);
     }
@@ -1105,20 +1172,39 @@
   function buildDocAccordion(doc, docIndex) {
     const title = doc.trichYeu || doc.soKyHieu || 'Văn bản ' + (docIndex + 1);
     const shortTitle = title.length > 80 ? title.substring(0, 80) + '...' : title;
+    const isThongBao = doc.loaiVanBan === 'Thông báo';
     let filesHtml = '';
-    for (let j = 0; j < doc.files.length; j++) {
-      const f = doc.files[j];
-      const shortName = f.name.length > 50 ? f.name.substring(0, 50) + '...' : f.name;
-      filesHtml += `
+    if (isThongBao) {
+      for (let j = 0; j < doc.files.length; j++) {
+        const f = doc.files[j];
+        const shortName = f.name.length > 50 ? f.name.substring(0, 50) + '...' : f.name;
+        filesHtml += `
+          <div class="vbdh-file-item">
+            <div class="vbdh-file-header">
+              <span class="vbdh-arrow">▶</span>
+              <span class="vbdh-file-icon">📄</span>
+              <span class="vbdh-file-name">${shortName}</span>
+              <span class="vbdh-status vbdh-status-pending" id="vbdh-status-${docIndex}-${j}">⏳ Chờ xử lý</span>
+            </div>
+            <div class="vbdh-file-content" style="display:none" id="vbdh-content-${docIndex}-${j}">
+              <div id="vbdh-result-${docIndex}-${j}" class="vbdh-result-loading">
+                <div class="vbdh-spinner"></div><p>Đang xử lý...</p>
+              </div>
+            </div>
+          </div>`;
+      }
+    } else {
+      // Non-ThongBao: single placeholder for task display (no files)
+      filesHtml = `
         <div class="vbdh-file-item">
           <div class="vbdh-file-header">
             <span class="vbdh-arrow">▶</span>
-            <span class="vbdh-file-icon">📄</span>
-            <span class="vbdh-file-name">${shortName}</span>
-            <span class="vbdh-status vbdh-status-pending" id="vbdh-status-${docIndex}-${j}">⏳ Chờ xử lý</span>
+            <span class="vbdh-file-icon">📝</span>
+            <span class="vbdh-file-name">Nhiệm vụ từ trích yếu</span>
+            <span class="vbdh-status vbdh-status-pending" id="vbdh-status-${docIndex}-0">⏳ Chờ xử lý</span>
           </div>
-          <div class="vbdh-file-content" style="display:none" id="vbdh-content-${docIndex}-${j}">
-            <div id="vbdh-result-${docIndex}-${j}" class="vbdh-result-loading">
+          <div class="vbdh-file-content" style="display:none" id="vbdh-content-${docIndex}-0">
+            <div id="vbdh-result-${docIndex}-0" class="vbdh-result-loading">
               <div class="vbdh-spinner"></div><p>Đang xử lý...</p>
             </div>
           </div>
@@ -1130,7 +1216,7 @@
           <span class="vbdh-arrow">▶</span>
           <div class="vbdh-doc-title">
             <strong>${doc.soKyHieu}</strong> — ${shortTitle}
-            <span class="vbdh-file-count" id="vbdh-file-count-${docIndex}">${doc.files.length} file(s)</span>
+            <span class="vbdh-file-count" id="vbdh-file-count-${docIndex}">${isThongBao ? doc.files.length + ' file(s)' : 'Không có file'}</span>
           </div>
         </div>
         <div class="vbdh-doc-content" style="display:none" id="vbdh-doc-content-${docIndex}">
@@ -1201,7 +1287,7 @@
       formData.append('cacheKey', cacheKey);
       formData.append('files', blob, file.name);
 
-      const uploadRes = await fetch(`${apiUrl}/documents/upload`, { method: 'POST', headers: getAuthHeaders(), body: formData });
+      const uploadRes = await fetchWithRefresh(`${apiUrl}/documents/upload`, { method: 'POST', headers: getAuthHeaders(), body: formData });
       if (!uploadRes.ok) throw new Error('Upload lỗi: HTTP ' + uploadRes.status);
       const uploadJson = await uploadRes.json();
       const results = uploadJson.data?.results || [];
@@ -1222,7 +1308,7 @@
 
   async function checkCache(apiUrl, cacheKey) {
     try {
-      const res = await fetch(`${apiUrl}/documents/check-cache`, {
+      const res = await fetchWithRefresh(`${apiUrl}/documents/check-cache`, {
         method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ cacheKey }),
       });
       if (!res.ok) return { found: false };
@@ -1238,7 +1324,7 @@
       await sleep(3000);
       if (statusEl) statusEl.textContent = `⏳ AI xử lý (${attempt + 1}/60)...`;
       try {
-        const res = await fetch(`${apiUrl}/documents/${documentId}/result`, { headers: getAuthHeaders() });
+        const res = await fetchWithRefresh(`${apiUrl}/documents/${documentId}/result`, { headers: getAuthHeaders() });
         if (!res.ok) continue;
         const json = await res.json();
         const data = json.data;
@@ -1337,7 +1423,7 @@
         statusEl.textContent = '⏳ Xử lý lại';
         resultEl.innerHTML = '<div class="vbdh-spinner"></div><p>Đang xử lý lại...</p>';
         try {
-          await fetch(`${apiUrl}/documents/${documentId}/re-extract`, { method: 'POST', headers: getAuthHeaders() });
+          await fetchWithRefresh(`${apiUrl}/documents/${documentId}/re-extract`, { method: 'POST', headers: getAuthHeaders() });
           const d = await pollUntilDone(apiUrl, documentId, statusEl);
           displayResult(d, statusEl, resultEl, documentId, apiUrl);
         } catch (e) {
@@ -1405,10 +1491,12 @@
   }
 
   async function handleCreateExtractTasks(documentId, apiUrl, statusEl, resultEl) {
-    const selectedTasks = extractState.tasks.filter(t => t && t.selected && t._documentId === documentId);
+    const selectedTasks = extractState.tasks.filter(t => t && t.selected && (documentId === null ? !t._documentId : t._documentId === documentId));
     if (selectedTasks.length === 0) { alert('Chọn ít nhất 1 nhiệm vụ'); return; }
 
-    const btn = document.getElementById(`vbdh-btn-create-tasks-${documentId}`);
+    const btn = documentId !== null
+      ? document.getElementById(`vbdh-btn-create-tasks-${documentId}`)
+      : document.querySelector('[id^="vbdh-btn-create-tasks-nonThongBao-"]');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Đang tạo...'; }
 
     try {
@@ -1419,8 +1507,20 @@
         priority: t.priority,
         deadline: t.deadline || null,
       }));
-      const res = await apiPost(`/api/v1/documents/${documentId}/create-tasks`, payload);
-      const created = res.data || [];
+
+      let created;
+      if (documentId !== null) {
+        // ThongBao: create tasks linked to uploaded document
+        const res = await apiPost(`/api/v1/documents/${documentId}/create-tasks`, payload);
+        created = res.data || [];
+      } else {
+        // Non-ThongBao: create tasks directly via /api/v1/tasks
+        created = [];
+        for (const item of payload) {
+          const res = await apiPost('/api/v1/tasks', item);
+          if (res.data) created.push(res.data);
+        }
+      }
       alert(`Đã tạo ${created.length} nhiệm vụ thành công!`);
       resultEl.innerHTML = '<div class="vbdh-extract-success">✅ Đã tạo ' + created.length + ' nhiệm vụ từ văn bản này.</div>';
       statusEl.textContent = '✅ Đã tạo NV';
@@ -1430,13 +1530,137 @@
     }
   }
 
+  function processNonThongBaoDoc(doc, docIndex) {
+    // For non-ThongBao documents: create 1 task directly, no file processing
+    const title = doc.trichYeu || doc.soKyHieu || 'Văn bản ' + (docIndex + 1);
+    const resultEl = document.getElementById(`vbdh-result-${docIndex}-0`);
+    const statusEl = document.getElementById(`vbdh-status-${docIndex}-0`);
+
+    if (statusEl) {
+      statusEl.className = 'vbdh-status vbdh-status-done';
+      statusEl.textContent = '✅ Nhiệm vụ';
+    }
+
+    // Push task to extractState
+    const taskIdx = extractState.tasks.length;
+    const DEFAULT_DEPT_CODE = 'VPHDND';
+    const defaultDept = extractState.departments.find(d => d.code === DEFAULT_DEPT_CODE);
+    const deptId = defaultDept ? defaultDept.id : (extractState.departments.length > 0 ? extractState.departments[0].id : '');
+
+    extractState.tasks.push({
+      idx: taskIdx,
+      title: title,
+      description: title,
+      departmentName: '',
+      department: deptId,
+      priority: 'BINH_THUONG',
+      deadline: '',
+      selected: true,
+      _documentId: null
+    });
+
+    if (resultEl) {
+      let html = '';
+      html += '<div class="vbdh-section-header"><span class="vbdh-section-title">📋 Nhiệm vụ</span></div>';
+      html += '<div class="vbdh-extract-info">Loại văn bản không phải "Thông báo" — tạo 1 nhiệm vụ từ trích yếu.</div>';
+      html += '<div class="vbdh-table vbdh-extract-table"><table><thead><tr>';
+      html += '<th style="width:36px">✅</th>';
+      html += '<th>Nhiệm vụ</th>';
+      html += '<th style="width:90px">Ưu tiên</th>';
+      html += '<th style="width:130px">Hạn xử lý</th>';
+      html += '<th style="width:140px">Phòng ban</th>';
+      html += '<th style="width:32px"></th>';
+      html += '</tr></thead><tbody>';
+      const t = extractState.tasks[taskIdx];
+      html += `<tr data-task-idx="${taskIdx}">`;
+      html += `<td><input type="checkbox" class="vbdh-extract-check" data-idx="${taskIdx}" ${t.selected ? 'checked' : ''}></td>`;
+      html += `<td style="text-align:left"><b>${escapeHtml(t.title)}</b></td>`;
+      html += `<td><select class="vbdh-extract-priority" data-idx="${taskIdx}" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;">`;
+      html += '<option value="CAO">Cao</option>';
+      html += '<option value="BINH_THUONG" selected>Bình thường</option>';
+      html += '<option value="THAP">Thấp</option>';
+      html += '</select></td>';
+      html += `<td><input type="date" class="vbdh-extract-deadline" data-idx="${taskIdx}" value="" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;"></td>`;
+      html += `<td><select class="vbdh-extract-dept" data-idx="${taskIdx}" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;"><option value="">-- Phòng ban --</option>`;
+      for (const dept of extractState.departments) {
+        html += `<option value="${dept.id}"${t.department === dept.id ? ' selected' : ''}>${escapeHtml(dept.name)}</option>`;
+      }
+      html += '</select></td>';
+      html += `<td><button class="vbdh-extract-del" data-idx="${taskIdx}" title="Xóa" style="background:none;border:none;color:#ff4d4f;cursor:pointer;font-size:16px;">✕</button></td>`;
+      html += '</tr>';
+      html += '</tbody></table></div>';
+      // Create tasks button
+      html += '<div class="vbdh-extract-actions">';
+      html += `<button class="vbdh-btn vbdh-btn-primary" id="vbdh-btn-create-tasks-nonThongBao-${docIndex}">✅ Tạo nhiệm vụ (1)</button>`;
+      html += '</div>';
+
+      resultEl.innerHTML = html;
+
+      // Bind events
+      const resultContainer = resultEl;
+      resultContainer.querySelectorAll('.vbdh-extract-check').forEach(cb => {
+        cb.addEventListener('change', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          if (extractState.tasks[idx]) extractState.tasks[idx].selected = e.target.checked;
+          updateCreateButtonNonThongBao(docIndex);
+        });
+      });
+      resultContainer.querySelectorAll('.vbdh-extract-priority').forEach(sel => {
+        sel.addEventListener('change', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          if (extractState.tasks[idx]) extractState.tasks[idx].priority = e.target.value;
+        });
+      });
+      resultContainer.querySelectorAll('.vbdh-extract-deadline').forEach(inp => {
+        inp.addEventListener('change', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          if (extractState.tasks[idx]) extractState.tasks[idx].deadline = e.target.value;
+        });
+      });
+      resultContainer.querySelectorAll('.vbdh-extract-dept').forEach(sel => {
+        sel.addEventListener('change', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          if (extractState.tasks[idx]) extractState.tasks[idx].department = e.target.value;
+        });
+      });
+      resultContainer.querySelectorAll('.vbdh-extract-del').forEach(btn => {
+        btn.addEventListener('click', e => {
+          const idx = parseInt(e.target.dataset.idx);
+          extractState.tasks[idx] = null;
+          const row = e.target.closest('tr');
+          if (row) row.remove();
+          updateCreateButtonNonThongBao(docIndex);
+        });
+      });
+
+      const createBtn = document.getElementById(`vbdh-btn-create-tasks-nonThongBao-${docIndex}`);
+      if (createBtn) {
+        createBtn.addEventListener('click', () => handleCreateExtractTasks(null, getApiUrl(), statusEl, resultEl));
+      }
+    }
+  }
+
+  function updateCreateButtonNonThongBao(docIndex) {
+    const btn = document.getElementById(`vbdh-btn-create-tasks-nonThongBao-${docIndex}`);
+    if (!btn) return;
+    // Count selected tasks without _documentId (non-ThongBao tasks)
+    const count = extractState.tasks.filter(t => t && t.selected && !t._documentId).length;
+    btn.textContent = `✅ Tạo nhiệm vụ (${count})`;
+    btn.disabled = count === 0;
+  }
+
   function updateDocFileCounts(docs) {}
   function updateDocTaskBadge(docs, docIndex) {
     const badge = document.getElementById(`vbdh-file-count-${docIndex}`);
     if (!badge) return;
     const docContent = document.getElementById(`vbdh-doc-content-${docIndex}`);
-    const taskRows = docContent ? docContent.querySelectorAll('.vbdh-table tbody tr').length : 0;
-    badge.textContent = `${docs[docIndex].files.length} file · ${taskRows} nhiệm vụ`;
+    const taskRows = docContent ? docContent.querySelectorAll('.vbdh-table tbody tr, .vbdh-extract-table tbody tr').length : 0;
+    const isThongBao = docs[docIndex].loaiVanBan === 'Thông báo';
+    if (isThongBao) {
+      badge.textContent = `${docs[docIndex].files.length} file · ${taskRows} nhiệm vụ`;
+    } else {
+      badge.textContent = `${taskRows} nhiệm vụ`;
+    }
   }
 
   // ===== HELPERS =====

@@ -244,7 +244,30 @@
     panel.style.display = isVisible ? 'flex' : 'none';
   }
 
-  // ===== API Calls =====
+  // ===== API Calls (with auto token refresh) =====
+
+  // chatbot.js runs in page MAIN world (loaded via <script> tag) — NO chrome.runtime.
+  // Uses window.postMessage bridge to content.js → background.js for token refresh.
+
+  async function refreshJwtToken() {
+    return new Promise((resolve) => {
+      const reqId = 'cb_refresh_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+      const handler = (event) => {
+        if (event.source !== window) return;
+        if (event.data.type === 'VBDH_TOKEN_REFRESHED' && event.data.reqId === reqId) {
+          window.removeEventListener('message', handler);
+          resolve(event.data.ok && event.data.token);
+        }
+      };
+      window.addEventListener('message', handler);
+      window.postMessage({ type: 'VBDH_REFRESH_TOKEN_REQ', reqId }, '*');
+      setTimeout(() => {
+        window.removeEventListener('message', handler);
+        resolve(null);
+      }, 10000);
+    });
+  }
+
   async function apiCall(method, path, body) {
     const opts = {
       method,
@@ -254,7 +277,18 @@
       },
     };
     if (body) opts.body = JSON.stringify(body);
-    const res = await fetch(`${config.apiBase}/api/v1/chatbot${path}`, opts);
+    let res = await fetch(`${config.apiBase}/api/v1/chatbot${path}`, opts);
+
+    // Auto-refresh on 401
+    if (res.status === 401) {
+      const newToken = await refreshJwtToken();
+      if (newToken) {
+        config.token = newToken; // update for subsequent calls
+        opts.headers['Authorization'] = `Bearer ${newToken}`;
+        res = await fetch(`${config.apiBase}/api/v1/chatbot${path}`, opts);
+      }
+    }
+
     return res.json();
   }
 
@@ -355,7 +389,18 @@
         }),
         signal: currentAbortController.signal,
       };
-      const res = await fetch(`${config.apiBase}/api/v1/chatbot/chat`, opts);
+      let res = await fetch(`${config.apiBase}/api/v1/chatbot/chat`, opts);
+
+      // Auto-refresh on 401
+      if (res.status === 401) {
+        const newToken = await refreshJwtToken();
+        if (newToken) {
+          config.token = newToken;
+          opts.headers['Authorization'] = `Bearer ${newToken}`;
+          res = await fetch(`${config.apiBase}/api/v1/chatbot/chat`, opts);
+        }
+      }
+
       const data = await res.json();
       if (data.data) {
         // If backend auto-created conversation, save the ID
