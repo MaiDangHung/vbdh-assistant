@@ -627,6 +627,7 @@
         priority: document.getElementById('vbdh-ct-priority').value,
         dueDate: document.getElementById('vbdh-ct-deadline').value || null,
         departmentId: dept,
+        sourceType: 'extension',
       };
 
       try {
@@ -1506,6 +1507,7 @@
         departmentId: t.department || null,
         priority: t.priority,
         deadline: t.deadline || null,
+        sourceType: 'extension',
       }));
 
       let created;
