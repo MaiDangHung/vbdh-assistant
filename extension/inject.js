@@ -496,6 +496,11 @@
     // Lịch sử — all
     btns += `<button class="vbdh-btn vbdh-btn-sm" data-action="history" data-id="${t.id}">📜 Lịch sử</button>`;
 
+    // Sửa — ADMIN, CHIEF, DEPT_HEAD
+    if (role === 'ADMIN' || role === 'CHIEF' || isDeptHead) {
+      btns += `<button class="vbdh-btn vbdh-btn-sm" data-action="edit" data-id="${t.id}">✏️ Sửa</button>`;
+    }
+
     // Xóa — ADMIN
     if (role === 'ADMIN') {
       btns += `<button class="vbdh-btn vbdh-btn-sm vbdh-btn-danger" data-action="delete" data-id="${t.id}">🗑️</button>`;
@@ -521,6 +526,9 @@
     switch (action) {
       case 'detail':
         openDetailModal(id);
+        break;
+      case 'edit':
+        openEditModal(id);
         break;
       case 'assign':
         openAssignModal(id, btn.dataset.dept);
@@ -632,6 +640,86 @@
 
       try {
         await apiPost('/api/v1/tasks', payload);
+        overlay.remove();
+        loadTasks(body);
+      } catch (e) { alert('❌ ' + e.message); }
+    };
+  }
+
+  // ===== EDIT TASK MODAL =====
+
+  function openEditModal(taskId) {
+    const task = taskState.tasks.find(t => t.id === taskId);
+    if (!task) { alert('Không tìm thấy nhiệm vụ'); return; }
+
+    const depts = taskState.departments;
+    const deptOptions = depts.map(d => `<option value="${d.id}" ${task.assignedDepartmentId === d.id ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('');
+    const deadline = task.deadline ? task.deadline.split('T')[0] : '';
+
+    const overlay = createModalOverlay('Sửa nhiệm vụ: ' + escapeHtml(task.title), `
+      <div class="vbdh-form-group">
+        <label>Tiêu đề <span class="vbdh-required">*</span></label>
+        <input type="text" id="vbdh-et-title" value="${escapeHtml(task.title || '')}" class="vbdh-input">
+      </div>
+      <div class="vbdh-form-group">
+        <label>Mô tả</label>
+        <textarea id="vbdh-et-desc" rows="3" class="vbdh-input">${escapeHtml(task.description || '')}</textarea>
+      </div>
+      <div class="vbdh-form-row">
+        <div class="vbdh-form-group">
+          <label>Ưu tiên</label>
+          <select id="vbdh-et-priority" class="vbdh-input">
+            <option value="CAO" ${task.priority === 'CAO' ? 'selected' : ''}>🔴 Cao</option>
+            <option value="BINH_THUONG" ${task.priority === 'BINH_THUONG' ? 'selected' : ''}>🔵 Bình thường</option>
+            <option value="THAP" ${task.priority === 'THAP' ? 'selected' : ''}>⚪ Thấp</option>
+          </select>
+        </div>
+        <div class="vbdh-form-group">
+          <label>Hạn xử lý</label>
+          <input type="date" id="vbdh-et-deadline" value="${deadline}" class="vbdh-input">
+        </div>
+      </div>
+      <div class="vbdh-form-group">
+        <label>Nguồn giao</label>
+        <select id="vbdh-et-source" class="vbdh-input">
+          <option value="extension" ${(task.sourceType || 'extension') === 'extension' ? 'selected' : ''}>🌐 Hệ thống VBDH</option>
+          <option value="document" ${task.sourceType === 'document' ? 'selected' : ''}>📋 PM giao việc</option>
+          <option value="DANG_UY" ${task.sourceType === 'DANG_UY' ? 'selected' : ''}>🔴 Đảng uỷ</option>
+        </select>
+      </div>
+      <div class="vbdh-form-group">
+        <label>Phòng ban</label>
+        <select id="vbdh-et-dept" class="vbdh-input">
+          <option value="">-- Giữ nguyên --</option>
+          ${deptOptions}
+        </select>
+      </div>
+      <div class="vbdh-form-actions">
+        <button class="vbdh-btn" id="vbdh-et-cancel">Hủy</button>
+        <button class="vbdh-btn vbdh-btn-primary" id="vbdh-et-submit">Lưu thay đổi</button>
+      </div>
+    `);
+
+    overlay.querySelector('#vbdh-et-cancel').onclick = () => overlay.remove();
+    overlay.querySelector('#vbdh-et-submit').onclick = async () => {
+      const title = document.getElementById('vbdh-et-title').value.trim();
+      if (!title) { alert('Nhập tiêu đề'); return; }
+
+      const payload = {
+        title,
+        description: document.getElementById('vbdh-et-desc').value.trim(),
+        priority: document.getElementById('vbdh-et-priority').value,
+        deadline: document.getElementById('vbdh-et-deadline').value || null,
+        sourceType: document.getElementById('vbdh-et-source').value,
+      };
+      const dept = document.getElementById('vbdh-et-dept').value;
+      if (dept) {
+        payload.assignedDepartmentId = dept;
+      }
+
+      try {
+        await apiPut(`/api/v1/tasks/${taskId}`, payload);
+        alert('✅ Đã cập nhật nhiệm vụ');
         overlay.remove();
         loadTasks(body);
       } catch (e) { alert('❌ ' + e.message); }
