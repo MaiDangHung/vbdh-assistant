@@ -649,6 +649,7 @@
   // ===== EDIT TASK MODAL =====
 
   function openEditModal(taskId) {
+    const body = document.getElementById('vbdh-body');
     const task = taskState.tasks.find(t => t.id === taskId);
     if (!task) { alert('Không tìm thấy nhiệm vụ'); return; }
 
