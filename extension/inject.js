@@ -182,6 +182,14 @@
     return labels[r] || r;
   }
 
+  // Get current user's assignment progress for a task (not task aggregate)
+  function getMyAssignmentProgress(t) {
+    if (!auth.userId || !t.assignees || !Array.isArray(t.assignees) || t.assignees.length === 0) return t.progress || 0;
+    const mine = t.assignees.find(a => String(a.userId) === String(auth.userId));
+    if (mine && mine.progress != null) return mine.progress;
+    return t.progress || 0;
+  }
+
   function switchTab(tabName) {
     // STAFF can only access tasks tab
     if (isStaff && tabName !== 'tasks') tabName = 'tasks';
@@ -473,12 +481,14 @@
 
     // Tiến độ — STAFF/DEPT_HEAD, status in progress
     if ((isStaff || isDeptHead) && ['dept_assigned', 'in_progress', 'dept_rejected'].includes(sv)) {
-      btns += `<button class="vbdh-btn vbdh-btn-sm" data-action="progress" data-id="${t.id}" data-pct="${t.progress || 0}">📊 Tiến độ</button>`;
+      const myPct = getMyAssignmentProgress(t);
+      btns += `<button class="vbdh-btn vbdh-btn-sm" data-action="progress" data-id="${t.id}" data-pct="${myPct}">📊 Tiến độ</button>`;
     }
 
     // Gửi duyệt — STAFF/DEPT_HEAD, progress = 100
     if ((isStaff || isDeptHead) && ['dept_assigned', 'in_progress', 'dept_rejected'].includes(sv)) {
-      const canSubmit = (t.progress || 0) >= 100;
+      const myPct = getMyAssignmentProgress(t);
+      const canSubmit = myPct >= 100;
       btns += `<button class="vbdh-btn vbdh-btn-sm" style="background:#fa8c16;color:#fff" data-action="submit" data-id="${t.id}" ${canSubmit ? '' : 'disabled title="Tiến độ phải đạt 100%"'}>📤 Gửi duyệt</button>`;
     }
 
