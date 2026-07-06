@@ -178,10 +178,13 @@
 
   function getRoleLabel(r) {
     const labels = { CHIEF: 'Chánh VP', DEPUTY: 'Lãnh đạo', ADMIN: 'Chánh VP', DEPT_HEAD: 'Trưởng phòng', STAFF: 'Chuyên viên' };
+    console.log('[VBDH] Current role from auth:', r);
     return labels[r] || r;
   }
 
   function switchTab(tabName) {
+    // STAFF can only access tasks tab
+    if (isStaff && tabName !== 'tasks') tabName = 'tasks';
     const body = document.getElementById('vbdh-body');
     if (!body) return;
 
