@@ -110,14 +110,16 @@ function showMainView() {
 
   const roleLabels = {
     'ADMIN': '👑 Quản trị viên',
+    'CHIEF': '📋 Chánh văn phòng',
+    'DEPUTY': '🎖️ Lãnh đạo',
     'DEPT_HEAD': '🏢 Trưởng phòng',
     'STAFF': '📝 Chuyên viên',
   };
   document.getElementById('user-role').textContent = roleLabels[auth.role] || auth.role;
 
   // Avatar color based on role
-  const avatarColors = { 'ADMIN': '#fff3e0', 'DEPT_HEAD': '#e8f5e9', 'STAFF': '#e3f2fd' };
-  const avatarIcons = { 'ADMIN': '👑', 'DEPT_HEAD': '🏢', 'STAFF': '📝' };
+  const avatarColors = { 'ADMIN': '#fff3e0', 'CHIEF': '#f3e5f5', 'DEPUTY': '#fce4ec', 'DEPT_HEAD': '#e8f5e9', 'STAFF': '#e3f2fd' };
+  const avatarIcons = { 'ADMIN': '👑', 'CHIEF': '📋', 'DEPUTY': '🎖️', 'DEPT_HEAD': '🏢', 'STAFF': '📝' };
   const avatarEl = document.getElementById('user-avatar');
   avatarEl.style.background = avatarColors[auth.role] || '#e3f2fd';
   avatarEl.textContent = avatarIcons[auth.role] || '👤';

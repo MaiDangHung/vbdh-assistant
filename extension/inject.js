@@ -17,7 +17,8 @@
 
   const auth = window.__vbdhAuth || {};
   const role = (auth.role || '').toUpperCase();
-  const isAdminOrLeader = role === 'ADMIN' || role === 'CHIEF' || role === 'DEPT_HEAD';
+  const isAdminOrLeader = role === 'ADMIN' || role === 'CHIEF' || role === 'DEPUTY' || role === 'DEPT_HEAD';
+  const isChiefLike = role === 'ADMIN' || role === 'CHIEF' || role === 'DEPUTY';
   const isDeptHead = role === 'DEPT_HEAD';
   const isStaff = role === 'STAFF';
 
@@ -176,7 +177,7 @@
   }
 
   function getRoleLabel(r) {
-    const labels = { CHIEF: 'Lãnh đạo', ADMIN: 'Chánh VP', DEPT_HEAD: 'Trưởng phòng', STAFF: 'Chuyên viên' };
+    const labels = { CHIEF: 'Chánh VP', DEPUTY: 'Lãnh đạo', ADMIN: 'Chánh VP', DEPT_HEAD: 'Trưởng phòng', STAFF: 'Chuyên viên' };
     return labels[r] || r;
   }
 
@@ -462,8 +463,8 @@
       btns += `<button class="vbdh-btn vbdh-btn-sm vbdh-btn-primary" data-action="assign" data-id="${t.id}" data-dept="${t.assignedDepartmentId || ''}">👤 Phân công</button>`;
     }
 
-    // Duyệt (CVP) — ADMIN, status = pending_review
-    if (role === 'ADMIN' && sv === 'pending_review') {
+    // Duyệt (CVP/Lãnh đạo) — ADMIN/CHIEF/DEPUTY, status = pending_review
+    if (isChiefLike && sv === 'pending_review') {
       btns += `<button class="vbdh-btn vbdh-btn-sm" style="background:#722ed1;color:#fff" data-action="review" data-id="${t.id}">✅ Duyệt</button>`;
     }
 
@@ -478,8 +479,8 @@
       btns += `<button class="vbdh-btn vbdh-btn-sm" style="background:#fa8c16;color:#fff" data-action="submit" data-id="${t.id}" ${canSubmit ? '' : 'disabled title="Tiến độ phải đạt 100%"'}>📤 Gửi duyệt</button>`;
     }
 
-    // Hoàn thành — ADMIN (trực tiếp)
-    if (role === 'ADMIN' && !['completed', 'cancelled', 'pending_review'].includes(sv)) {
+    // Hoàn thành — ADMIN/CHIEF/DEPUTY (trực tiếp)
+    if (isChiefLike && !['completed', 'cancelled', 'pending_review'].includes(sv)) {
       btns += `<button class="vbdh-btn vbdh-btn-sm" style="background:#52c41a;color:#fff" data-action="complete" data-id="${t.id}">✔️ Hoàn thành</button>`;
     }
 
@@ -496,12 +497,12 @@
     // Lịch sử — all
     btns += `<button class="vbdh-btn vbdh-btn-sm" data-action="history" data-id="${t.id}">📜 Lịch sử</button>`;
 
-    // Sửa — ADMIN, CHIEF, DEPT_HEAD
-    if (role === 'ADMIN' || role === 'CHIEF' || isDeptHead) {
+    // Sửa — ADMIN, CHIEF, DEPUTY, DEPT_HEAD
+    if (isChiefLike || isDeptHead) {
       btns += `<button class="vbdh-btn vbdh-btn-sm" data-action="edit" data-id="${t.id}">✏️ Sửa</button>`;
     }
 
-    // Xóa — ADMIN
+    // Xóa — ADMIN only
     if (role === 'ADMIN') {
       btns += `<button class="vbdh-btn vbdh-btn-sm vbdh-btn-danger" data-action="delete" data-id="${t.id}">🗑️</button>`;
     }
