@@ -1057,8 +1057,8 @@
           await processSingleFile(docs[i], docs[i].files[j], i, j);
         }
       } else {
-        // Non-ThongBao: create 1 task directly with title/description = trichYeu
-        processNonThongBaoDoc(docs[i], i);
+        // Non-ThongBao: download file → AI summarize → create 1 task with summary as description
+        await processNonThongBaoDoc(docs[i], i);
       }
       updateDocTaskBadge(docs, i);
     }
@@ -1285,13 +1285,14 @@
           </div>`;
       }
     } else {
-      // Non-ThongBao: single placeholder for task display (no files)
+      // Non-ThongBao: download file → AI summarize → create task
+      const firstFile = doc.files.length > 0 ? doc.files[0].name : '';
       filesHtml = `
         <div class="vbdh-file-item">
           <div class="vbdh-file-header">
             <span class="vbdh-arrow">▶</span>
             <span class="vbdh-file-icon">📝</span>
-            <span class="vbdh-file-name">Nhiệm vụ từ trích yếu</span>
+            <span class="vbdh-file-name">${firstFile ? 'Tóm tắt: ' + escapeHtml(firstFile.length > 50 ? firstFile.substring(0,50) + '...' : firstFile) : 'Tóm tắt AI'}</span>
             <span class="vbdh-status vbdh-status-pending" id="vbdh-status-${docIndex}-0">⏳ Chờ xử lý</span>
           </div>
           <div class="vbdh-file-content" style="display:none" id="vbdh-content-${docIndex}-0">
@@ -1622,11 +1623,86 @@
     }
   }
 
-  function processNonThongBaoDoc(doc, docIndex) {
-    // For non-ThongBao documents: create 1 task directly, no file processing
+  async function processNonThongBaoDoc(doc, docIndex) {
+    // For non-ThongBao documents: download file → upload → AI summarize → create 1 task
     const title = doc.trichYeu || doc.soKyHieu || 'Văn bản ' + (docIndex + 1);
     const resultEl = document.getElementById(`vbdh-result-${docIndex}-0`);
     const statusEl = document.getElementById(`vbdh-status-${docIndex}-0`);
+    const a = window.__vbdhAuth;
+    const apiUrl = getApiUrl();
+
+    let aiSummary = '';
+    let documentId = null;
+
+    if (a && a.token && doc.files.length > 0) {
+      try {
+        const file = doc.files[0];
+        const cacheKey = generateCacheKey(doc, file);
+
+        // Check cache first
+        statusEl.textContent = '⏳ Kiểm tra cache...';
+        statusEl.className = 'vbdh-status vbdh-status-pending';
+        const cacheResult = await checkCache(apiUrl, cacheKey);
+
+        if (cacheResult.found && cacheResult.documentId) {
+          if ((cacheResult.status === 'completed' || cacheResult.status === 'extracted') && cacheResult.extractionResult) {
+            aiSummary = cacheResult.extractionResult.summary || cacheResult.extractionResult.raw || '';
+            documentId = cacheResult.documentId;
+            statusEl.className = 'vbdh-status vbdh-status-done';
+            statusEl.textContent = '⚡ Cache';
+          } else if (cacheResult.status === 'processing' || cacheResult.status === 'extracting') {
+            statusEl.className = 'vbdh-status vbdh-status-pending';
+            statusEl.textContent = '⏳ AI đang xử lý...';
+            const extractData = await pollUntilDone(apiUrl, cacheResult.documentId, statusEl);
+            aiSummary = (extractData.extractionResult && (extractData.extractionResult.summary || extractData.extractionResult.raw)) || '';
+            documentId = extractData.documentId || cacheResult.documentId;
+          } else if (cacheResult.extractionResult) {
+            aiSummary = cacheResult.extractionResult.summary || cacheResult.extractionResult.raw || '';
+            documentId = cacheResult.documentId;
+            statusEl.className = 'vbdh-status vbdh-status-done';
+            statusEl.textContent = '⚡ Cache';
+          }
+        }
+
+        if (!documentId) {
+          // Download file
+          statusEl.textContent = '⏳ Đang tải file...';
+          const blob = await fetchFile(file.url);
+          if (!blob) {
+            statusEl.className = 'vbdh-status vbdh-status-error';
+            statusEl.textContent = '❌ Lỗi tải file';
+            aiSummary = title; // fallback to trichYeu
+          } else {
+            // Upload to backend
+            statusEl.textContent = '⏳ Đang upload...';
+            const singleDoc = { ...doc, files: [{ name: file.name }] };
+            const formData = new FormData();
+            formData.append('metadata', JSON.stringify({ ...singleDoc, cacheKey }));
+            formData.append('cacheKey', cacheKey);
+            formData.append('files', blob, file.name);
+
+            const uploadRes = await fetchWithRefresh(`${apiUrl}/documents/upload`, { method: 'POST', headers: getAuthHeaders(), body: formData });
+            if (!uploadRes.ok) throw new Error('Upload lỗi: HTTP ' + uploadRes.status);
+            const uploadJson = await uploadRes.json();
+            const results = uploadJson.data?.results || [];
+            const docResult = results[0];
+            if (!docResult?.documentId) throw new Error(docResult?.error || 'Upload thất bại');
+
+            documentId = docResult.documentId;
+            statusEl.className = 'vbdh-status vbdh-status-pending';
+            statusEl.textContent = '⏳ AI đang tóm tắt...';
+            const extractData = await pollUntilDone(apiUrl, documentId, statusEl);
+            aiSummary = (extractData.extractionResult && (extractData.extractionResult.summary || extractData.extractionResult.raw)) || '';
+          }
+        }
+      } catch (error) {
+        console.warn('[VBDH] Non-ThongBao AI summary failed:', error.message);
+        aiSummary = title; // fallback to trichYeu
+      }
+    } else {
+      // No auth or no files — fallback to trichYeu
+      aiSummary = title;
+    }
 
     if (statusEl) {
       statusEl.className = 'vbdh-status vbdh-status-done';
@@ -1642,19 +1718,20 @@
     extractState.tasks.push({
       idx: taskIdx,
       title: title,
-      description: title,
+      description: aiSummary || title,
       departmentName: '',
       department: deptId,
       priority: 'BINH_THUONG',
       deadline: '',
       selected: true,
-      _documentId: null
+      _documentId: documentId
     });
 
     if (resultEl) {
       let html = '';
       html += '<div class="vbdh-section-header"><span class="vbdh-section-title">📋 Nhiệm vụ</span></div>';
-      html += '<div class="vbdh-extract-info">Loại văn bản không phải "Thông báo" — tạo 1 nhiệm vụ từ trích yếu.</div>';
+      const shortDesc = aiSummary ? (aiSummary.length > 100 ? aiSummary.substring(0, 100) + '...' : aiSummary) : '';
+      html += `<div class="vbdh-extract-info">📝 Đã tóm tắt nội dung văn bản bằng AI.${shortDesc ? ' <i>Tóm tắt: ' + escapeHtml(shortDesc) + '</i>' : ''}</div>`;
       html += '<div class="vbdh-table vbdh-extract-table"><table><thead><tr>';
       html += '<th style="width:36px">✅</th>';
       html += '<th>Nhiệm vụ</th>';
