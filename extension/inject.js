@@ -263,7 +263,7 @@
       // Load departments + users in parallel
       const [deptRes, userRes] = await Promise.all([
         apiGet('/api/v1/admin/departments').catch(() => ({ data: { data: [] } })),
-        apiGet('/api/v1/admin/users').catch(() => ({ data: { data: [] } })),
+        apiGet('/api/v1/admin/officers').catch(() => ({ data: { data: [] } })),
       ]);
       taskState.departments = deptRes.data?.data || deptRes.data || [];
       taskState.users = userRes.data?.data || userRes.data || [];
@@ -734,9 +734,11 @@
   // ===== ASSIGN TO STAFF MODAL =====
 
   function openAssignModal(taskId, deptId) {
-    const staffInDept = taskState.users.filter(u =>
-      u.department?.id === deptId && u.role?.name === 'STAFF' && u.isActive !== false
-    );
+    const staffInDept = taskState.users.filter(u => {
+      const userDeptId = u.department?.id || u.departmentId;
+      const userRole = typeof u.role === 'string' ? u.role : (u.role?.name || '');
+      return userDeptId === deptId && userRole === 'STAFF' && u.isActive !== false;
+    });
 
     let staffOptions = staffInDept.map(u =>
       `<option value="${u.id}">${escapeHtml(u.fullName || u.username)}</option>`
