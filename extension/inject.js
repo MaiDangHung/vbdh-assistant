@@ -1731,7 +1731,8 @@
       let html = '';
       html += '<div class="vbdh-section-header"><span class="vbdh-section-title">📋 Nhiệm vụ</span></div>';
       const shortDesc = aiSummary ? (aiSummary.length > 100 ? aiSummary.substring(0, 100) + '...' : aiSummary) : '';
-      html += `<div class="vbdh-extract-info">📝 Đã tóm tắt nội dung văn bản bằng AI.${shortDesc ? ' <i>Tóm tắt: ' + escapeHtml(shortDesc) + '</i>' : ''}</div>`;
+      const fullSummary = aiSummary ? escapeHtml(aiSummary) : '';
+      html += `<div class="vbdh-extract-info">📝 Đã tóm tắt nội dung văn bản bằng AI.${shortDesc ? ' <i>Tóm tắt: ' + escapeHtml(shortDesc) + '</i>' : ''}${fullSummary ? ' <a href="#" onclick="var d=this.nextElementSibling;d.style.display=d.style.display===\'none\'?\'block\':\'none\';return false;" style="color:#1677ff;cursor:pointer;font-size:12px;">Xem thêm</a><div style="display:none;margin-top:8px;padding:8px;background:#f5f5f5;border-radius:4px;font-size:13px;line-height:1.5;white-space:pre-wrap;">' + fullSummary + '</div>' : ''}</div>`;
       html += '<div class="vbdh-table vbdh-extract-table"><table><thead><tr>';
       html += '<th style="width:36px">✅</th>';
       html += '<th>Nhiệm vụ</th>';
