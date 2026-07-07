@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VBDH Assistant - Trợ lý văn bản điều hành",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Tổng hợp nội dung văn bản, trích xuất nhiệm vụ và quản lý phân công phòng ban từ hệ thống QLVBDH",
   "permissions": [
     "activeTab",
