@@ -1533,7 +1533,7 @@
       const priority = (typeof t === 'object' && t.priority === 'urgent') ? 'CAO' : 'BINH_THUONG';
       const DEFAULT_DEPT_CODE = 'VPHDND';
       const defaultDept = extractState.departments.find(d => d.code === DEFAULT_DEPT_CODE);
-      const deptId = resolveDeptNameToId(deptName) || '';
+      const deptId = resolveDeptNameToId(deptName) || (defaultDept ? defaultDept.id : '');
       return { idx: extractState.tasks.length + idx, title: taskTitle, description: taskDesc, departmentName: deptName, department: deptId, priority, deadline, selected: true, _documentId: documentId };
     });
     extractState.tasks.push(...newTasks);
@@ -1798,12 +1798,14 @@
 
     // Push task to extractState
     const taskIdx = extractState.tasks.length;
+    const DEFAULT_DEPT_CODE = 'VPHDND';
+    const defaultDept = extractState.departments.find(d => d.code === DEFAULT_DEPT_CODE);
     extractState.tasks.push({
       idx: taskIdx,
       title: title,
       description: aiSummary || title,
       departmentName: '',
-      department: '',
+      department: defaultDept ? defaultDept.id : '',
       priority: 'BINH_THUONG',
       deadline: '',
       selected: true,
