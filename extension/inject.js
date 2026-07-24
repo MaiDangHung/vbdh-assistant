@@ -1612,7 +1612,7 @@
   }
 
   async function handleCreateExtractTasks(documentId, apiUrl, statusEl, resultEl) {
-    const selectedTasks = extractState.tasks.filter(t => t && t.selected && (documentId === null ? !t._documentId : t._documentId === documentId));
+    const selectedTasks = extractState.tasks.filter(t => t && t.selected && (documentId === null ? t._isNonThongBao : t._documentId === documentId));
     if (selectedTasks.length === 0) { alert('Chọn ít nhất 1 nhiệm vụ'); return; }
 
     const btn = documentId !== null
@@ -1753,7 +1753,8 @@
       priority: 'BINH_THUONG',
       deadline: '',
       selected: true,
-      _documentId: documentId
+      _documentId: documentId,
+      _isNonThongBao: true
     });
 
     if (resultEl) {
@@ -1843,7 +1844,7 @@
     const btn = document.getElementById(`vbdh-btn-create-tasks-nonThongBao-${docIndex}`);
     if (!btn) return;
     // Count selected tasks without _documentId (non-ThongBao tasks)
-    const count = extractState.tasks.filter(t => t && t.selected && !t._documentId).length;
+    const count = extractState.tasks.filter(t => t && t.selected && t._isNonThongBao).length;
     btn.textContent = `✅ Tạo nhiệm vụ (${count})`;
     btn.disabled = count === 0;
   }
