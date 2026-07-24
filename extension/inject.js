@@ -1014,85 +1014,48 @@
     } catch (e) { console.warn('[VBDH] Failed to load departments:', e); }
   }
 
-  // Match department name to department ID (fuzzy matching like tbkl)
-  // Normalized Vietnamese string — lowercase, no diacritics
-  function normalizeVi(str) {
-    return (str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-z0-9\s]/g, '').trim();
+  // Resolve department name via backend (single source of truth)
+  // Now calls POST /api/v1/departments/resolve on tbkl backend
+  async function resolveDeptNameToId(name, apiUrl) {
+    if (!name || !name.trim()) return '';
+    const baseUrl = apiUrl.replace('/api/v1/ext', '/api/v1');
+    try {
+      const res = await fetchWithRefresh(`${baseUrl}/departments/resolve`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (!res.ok) return '';
+      const json = await res.json();
+      const data = json.data || json;
+      return data.departmentId || '';
+    } catch (e) {
+      console.warn('[VBDH] resolveDeptNameToId failed:', e.message);
+      return '';
+    }
   }
 
-  function resolveDeptNameToId(name) {
-    if (!name) return '';
-    const normalized = normalizeVi(name);
-    if (!normalized) return '';
-
-    // Danh sách từ khóa đồng nghĩa → mã phòng ban (bổ sung cho AI trả tên chung chung)
-    const SYNONYMS = {
-      'van phong': 'VPHDND',           // "Văn phòng" không rõ → Văn phòng HĐND
-      'van phong hdnđ': 'VPHDND',
-      'van phong hdnd': 'VPHDND',
-      'van phong ubnd': 'VPUBND',
-      'phong tai chinh': 'P_TC',
-      'phong nhan su': 'P_NS',
-      'phong to chuc': 'P_NS',
-      'phong kinh te': 'P_KT',
-      'phong cong chung': 'P_CC',
-      'phong tu phap': 'P_TP',
-      'phong thi tuo': 'P_TT',
-      'phong giao duc': 'P_GD',
-      'phong van hoa': 'P_VH',
-      'phong xa hoi': 'P_XH',
-      'phong bao chi': 'P_BC',
-      'trung tam cong nghe thong tin': 'CNTT',
-      'trung tam hanh chinh cong': 'THCC',
-      'thcc': 'THCC',
-      'hanh chinh cong': 'THCC',
-    };
-
-    // Kiểm tra synonym trước
-    for (const [key, code] of Object.entries(SYNONYMS)) {
-      if (normalized === key || normalized.includes(key)) {
-        const dept = extractState.departments.find(d => d.code === code);
-        if (dept) return dept.id;
+  // Batch resolve multiple department names via backend
+  async function resolveDeptNamesToIds(names, apiUrl) {
+    if (!names || names.length === 0) return [];
+    const baseUrl = apiUrl.replace('/api/v1/ext', '/api/v1');
+    try {
+      const res = await fetchWithRefresh(`${baseUrl}/departments/resolve-batch`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ names })
+      });
+      if (!res.ok) return names.map(() => '');
+      const json = await res.json();
+      const list = json.data || json;
+      if (Array.isArray(list)) {
+        return list.map(item => item.departmentId || '');
       }
+      return names.map(() => '');
+    } catch (e) {
+      console.warn('[VBDH] resolveDeptNamesToIds failed:', e.message);
+      return names.map(() => '');
     }
-
-    let bestDept = null, bestScore = 0;
-    for (const dept of extractState.departments) {
-      const deptNorm = normalizeVi(dept.name);
-      if (deptNorm === normalized) { bestDept = dept; bestScore = 100; break; }
-
-      // Match bằng keywords (jsonb field)
-      if (dept.keywords) {
-        let kwList = [];
-        try { kwList = typeof dept.keywords === 'string' ? JSON.parse(dept.keywords) : dept.keywords; } catch (e) {}
-        if (Array.isArray(kwList)) {
-          for (const kw of kwList) {
-            const kwNorm = normalizeVi(String(kw));
-            if (kwNorm && kwNorm.length >= 3 && normalized.includes(kwNorm)) {
-              if (85 > bestScore) { bestDept = dept; bestScore = 85; }
-            }
-          }
-        }
-      }
-
-      // Contains match
-      if (deptNorm.length >= 5 && normalized.length >= 5) {
-        if (deptNorm.includes(normalized) || normalized.includes(deptNorm)) {
-          if (75 > bestScore) { bestDept = dept; bestScore = 75; }
-        }
-      }
-
-      // Word overlap match
-      const nameWords = new Set(normalized.split(' ').filter(w => w.length > 2));
-      const deptWords = new Set(deptNorm.split(' ').filter(w => w.length > 2));
-      let overlap = 0;
-      for (const w of nameWords) { if (deptWords.has(w)) overlap++; }
-      const wordScore = Math.round((overlap / Math.max(nameWords.size, deptWords.size)) * 60);
-      if (wordScore > bestScore) { bestDept = dept; bestScore = wordScore; }
-    }
-
-    // Threshold cao hơn (40 thay vì 30) để giảm false positive
-    return (bestDept && bestScore >= 40) ? bestDept.id : '';
   }
 
   async function processAllDocuments(modal) {
@@ -1432,20 +1395,20 @@
         if ((cacheResult.status === 'completed' || cacheResult.status === 'extracted') && cacheResult.extractionResult) {
           statusEl.className = 'vbdh-status vbdh-status-done';
           statusEl.textContent = '⚡ Cache';
-          displayResult({ extractionResult: cacheResult.extractionResult, status: cacheResult.status, _cached: true }, statusEl, resultEl, cacheResult.documentId, apiUrl);
+          await displayResult({ extractionResult: cacheResult.extractionResult, status: cacheResult.status, _cached: true }, statusEl, resultEl, cacheResult.documentId, apiUrl);
           return;
         }
         if (cacheResult.status === 'processing' || cacheResult.status === 'extracting') {
           statusEl.className = 'vbdh-status vbdh-status-pending';
           statusEl.textContent = '⏳ AI đang xử lý...';
           const extractData = await pollUntilDone(apiUrl, cacheResult.documentId, statusEl);
-          displayResult(extractData, statusEl, resultEl, cacheResult.documentId, apiUrl);
+          await displayResult(extractData, statusEl, resultEl, cacheResult.documentId, apiUrl);
           return;
         }
         if (cacheResult.extractionResult) {
           statusEl.className = 'vbdh-status vbdh-status-done';
           statusEl.textContent = '⚡ Cache';
-          displayResult({ extractionResult: cacheResult.extractionResult, status: cacheResult.status, _cached: true }, statusEl, resultEl, cacheResult.documentId, apiUrl);
+          await displayResult({ extractionResult: cacheResult.extractionResult, status: cacheResult.status, _cached: true }, statusEl, resultEl, cacheResult.documentId, apiUrl);
           return;
         }
       }
@@ -1477,7 +1440,7 @@
       statusEl.className = 'vbdh-status vbdh-status-pending';
       statusEl.textContent = '⏳ AI đang xử lý...';
       const extractData = await pollUntilDone(apiUrl, documentId, statusEl);
-      displayResult(extractData, statusEl, resultEl, documentId, apiUrl);
+      await displayResult(extractData, statusEl, resultEl, documentId, apiUrl);
     } catch (error) {
       statusEl.className = 'vbdh-status vbdh-status-error';
       statusEl.textContent = '❌ Lỗi';
@@ -1515,7 +1478,7 @@
     throw new Error('Quá thời gian chờ AI xử lý');
   }
 
-  function displayResult(data, statusEl, resultEl, documentId, apiUrl) {
+  async function displayResult(data, statusEl, resultEl, documentId, apiUrl) {
     const extraction = data.extractionResult || {};
     const isCached = data._cached === true;
     statusEl.className = 'vbdh-status vbdh-status-done';
@@ -1524,16 +1487,23 @@
     const summary = extraction.summary || extraction.raw || '';
     const rawTasks = extraction.tasks || [];
 
-    // Parse tasks into editable format with department matching
+    // Collect department names to resolve in batch
+    const deptNames = rawTasks.map(t => {
+      const name = (typeof t === 'object' && t.department) ? t.department : '';
+      return name || '';
+    });
+
+    // Resolve all department names via backend
+    const deptIds = await resolveDeptNamesToIds(deptNames, apiUrl);
+
+    // Parse tasks into editable format
     const newTasks = rawTasks.map((t, idx) => {
       const taskTitle = typeof t === 'string' ? t : (t.title || '');
       const taskDesc = (typeof t === 'object' && t.description) ? t.description : '';
       const deptName = (typeof t === 'object' && t.department) ? t.department : '';
       const deadline = (typeof t === 'object' && (t.deadline || t.dueDate)) ? (t.deadline || t.dueDate) : '';
       const priority = (typeof t === 'object' && t.priority === 'urgent') ? 'CAO' : 'BINH_THUONG';
-      const DEFAULT_DEPT_CODE = 'VPHDND';
-      const defaultDept = extractState.departments.find(d => d.code === DEFAULT_DEPT_CODE);
-      const deptId = resolveDeptNameToId(deptName) || (defaultDept ? defaultDept.id : '');
+      const deptId = deptIds[idx] || '';
       return { idx: extractState.tasks.length + idx, title: taskTitle, description: taskDesc, departmentName: deptName, department: deptId, priority, deadline, selected: true, _documentId: documentId };
     });
     extractState.tasks.push(...newTasks);
@@ -1604,7 +1574,7 @@
         try {
           await fetchWithRefresh(`${apiUrl}/documents/${documentId}/re-extract`, { method: 'POST', headers: getAuthHeaders() });
           const d = await pollUntilDone(apiUrl, documentId, statusEl);
-          displayResult(d, statusEl, resultEl, documentId, apiUrl);
+          await displayResult(d, statusEl, resultEl, documentId, apiUrl);
         } catch (e) {
           statusEl.className = 'vbdh-status vbdh-status-error';
           statusEl.textContent = '❌ Lỗi';
@@ -1796,16 +1766,15 @@
       statusEl.textContent = '✅ Nhiệm vụ';
     }
 
-    // Push task to extractState
+    // Push task to extractState — resolve default dept via backend
     const taskIdx = extractState.tasks.length;
-    const DEFAULT_DEPT_CODE = 'VPHDND';
-    const defaultDept = extractState.departments.find(d => d.code === DEFAULT_DEPT_CODE);
+    const defaultDeptId = await resolveDeptNameToId('', apiUrl);
     extractState.tasks.push({
       idx: taskIdx,
       title: title,
       description: aiSummary || title,
       departmentName: '',
-      department: defaultDept ? defaultDept.id : '',
+      department: defaultDeptId || '',
       priority: 'BINH_THUONG',
       deadline: '',
       selected: true,
