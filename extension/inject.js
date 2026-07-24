@@ -1493,8 +1493,49 @@
       return name || '';
     });
 
-    // Resolve all department names via backend
+    // Resolve all department names via backend (Layer 1)
     const deptIds = await resolveDeptNamesToIds(deptNames, apiUrl);
+
+    // Layer 2: AI suggest cho task chưa match department
+    const deptIdSet = new Set(extractState.departments.map(d => d.id));
+    const needAiSuggest = [];
+    for (let i = 0; i < rawTasks.length; i++) {
+      if (!deptIds[i] || !deptIdSet.has(deptIds[i])) {
+        needAiSuggest.push(i);
+      }
+    }
+    if (needAiSuggest.length > 0) {
+      const deptNameList = extractState.departments.map(d => d.name);
+      for (const i of needAiSuggest) {
+        const taskTitle = typeof rawTasks[i] === 'string' ? rawTasks[i] : (rawTasks[i].title || '');
+        if (!taskTitle || taskTitle.trim().length < 5) continue;
+        try {
+          const baseUrl = apiUrl.replace('/api/v1/ext', '/api/v1');
+          const aiRes = await fetchWithRefresh(`${baseUrl}/ai/suggest-department`, {
+            method: 'POST',
+            headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: taskTitle, departments: deptNameList })
+          });
+          if (aiRes.ok) {
+            const aiJson = await aiRes.json();
+            const suggested = aiJson.data || aiJson;
+            if (suggested?.department) {
+              // Resolve tên AI suggest → UUID
+              const resolved = await resolveDeptNameToId(suggested.department, apiUrl);
+              if (resolved) {
+                deptIds[i] = resolved;
+                // Cập nhật departmentName nếu AI trả tên khác
+                if (typeof rawTasks[i] === 'object') {
+                  rawTasks[i].department = suggested.department;
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[VBDH] AI suggest department failed for task', i, e.message);
+        }
+      }
+    }
 
     // Parse tasks into editable format
     const newTasks = rawTasks.map((t, idx) => {
