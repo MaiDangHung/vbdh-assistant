@@ -1015,18 +1015,74 @@
   }
 
   // Match department name to department ID (fuzzy matching like tbkl)
+  // Normalized Vietnamese string — lowercase, no diacritics
+  function normalizeVi(str) {
+    return (str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-z0-9\s]/g, '').trim();
+  }
+
   function resolveDeptNameToId(name) {
     if (!name) return '';
-    const normalized = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').replace(/[^a-z0-9\s]/g, '').trim();
+    const normalized = normalizeVi(name);
+    if (!normalized) return '';
+
+    // Danh sách từ khóa đồng nghĩa → mã phòng ban (bổ sung cho AI trả tên chung chung)
+    const SYNONYMS = {
+      'van phong': 'VPHDND',           // "Văn phòng" không rõ → Văn phòng HĐND
+      'van phong hdnđ': 'VPHDND',
+      'van phong hdnd': 'VPHDND',
+      'van phong ubnd': 'VPUBND',
+      'phong tai chinh': 'P_TC',
+      'phong nhan su': 'P_NS',
+      'phong to chuc': 'P_NS',
+      'phong kinh te': 'P_KT',
+      'phong cong chung': 'P_CC',
+      'phong tu phap': 'P_TP',
+      'phong thi tuo': 'P_TT',
+      'phong giao duc': 'P_GD',
+      'phong van hoa': 'P_VH',
+      'phong xa hoi': 'P_XH',
+      'phong bao chi': 'P_BC',
+      'trung tam cong nghe thong tin': 'CNTT',
+      'trung tam hanh chinh cong': 'THCC',
+      'thcc': 'THCC',
+      'hanh chinh cong': 'THCC',
+    };
+
+    // Kiểm tra synonym trước
+    for (const [key, code] of Object.entries(SYNONYMS)) {
+      if (normalized === key || normalized.includes(key)) {
+        const dept = extractState.departments.find(d => d.code === code);
+        if (dept) return dept.id;
+      }
+    }
+
     let bestDept = null, bestScore = 0;
     for (const dept of extractState.departments) {
-      const deptNorm = dept.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9\s]/g, '').trim();
+      const deptNorm = normalizeVi(dept.name);
       if (deptNorm === normalized) { bestDept = dept; bestScore = 100; break; }
-      if (deptNorm.length >= 5 && normalized.length >= 5) {
-        if (deptNorm.includes(normalized) || normalized.includes(deptNorm)) {
-          if (70 > bestScore) { bestDept = dept; bestScore = 70; }
+
+      // Match bằng keywords (jsonb field)
+      if (dept.keywords) {
+        let kwList = [];
+        try { kwList = typeof dept.keywords === 'string' ? JSON.parse(dept.keywords) : dept.keywords; } catch (e) {}
+        if (Array.isArray(kwList)) {
+          for (const kw of kwList) {
+            const kwNorm = normalizeVi(String(kw));
+            if (kwNorm && kwNorm.length >= 3 && normalized.includes(kwNorm)) {
+              if (85 > bestScore) { bestDept = dept; bestScore = 85; }
+            }
+          }
         }
       }
+
+      // Contains match
+      if (deptNorm.length >= 5 && normalized.length >= 5) {
+        if (deptNorm.includes(normalized) || normalized.includes(deptNorm)) {
+          if (75 > bestScore) { bestDept = dept; bestScore = 75; }
+        }
+      }
+
+      // Word overlap match
       const nameWords = new Set(normalized.split(' ').filter(w => w.length > 2));
       const deptWords = new Set(deptNorm.split(' ').filter(w => w.length > 2));
       let overlap = 0;
@@ -1034,7 +1090,9 @@
       const wordScore = Math.round((overlap / Math.max(nameWords.size, deptWords.size)) * 60);
       if (wordScore > bestScore) { bestDept = dept; bestScore = wordScore; }
     }
-    return (bestDept && bestScore >= 30) ? bestDept.id : '';
+
+    // Threshold cao hơn (40 thay vì 30) để giảm false positive
+    return (bestDept && bestScore >= 40) ? bestDept.id : '';
   }
 
   async function processAllDocuments(modal) {
@@ -1475,7 +1533,7 @@
       const priority = (typeof t === 'object' && t.priority === 'urgent') ? 'CAO' : 'BINH_THUONG';
       const DEFAULT_DEPT_CODE = 'VPHDND';
       const defaultDept = extractState.departments.find(d => d.code === DEFAULT_DEPT_CODE);
-      const deptId = resolveDeptNameToId(deptName) || (defaultDept ? defaultDept.id : (extractState.departments.length > 0 ? extractState.departments[0].id : ''));
+      const deptId = resolveDeptNameToId(deptName) || '';
       return { idx: extractState.tasks.length + idx, title: taskTitle, description: taskDesc, departmentName: deptName, department: deptId, priority, deadline, selected: true, _documentId: documentId };
     });
     extractState.tasks.push(...newTasks);
@@ -1740,16 +1798,12 @@
 
     // Push task to extractState
     const taskIdx = extractState.tasks.length;
-    const DEFAULT_DEPT_CODE = 'VPHDND';
-    const defaultDept = extractState.departments.find(d => d.code === DEFAULT_DEPT_CODE);
-    const deptId = defaultDept ? defaultDept.id : (extractState.departments.length > 0 ? extractState.departments[0].id : '');
-
     extractState.tasks.push({
       idx: taskIdx,
       title: title,
       description: aiSummary || title,
       departmentName: '',
-      department: deptId,
+      department: '',
       priority: 'BINH_THUONG',
       deadline: '',
       selected: true,
