@@ -991,6 +991,20 @@
   // EXTRACT DOCUMENTS (kept from original inject.js)
   // ===================================================================
 
+  // Các loại văn bản được trích xuất nhiều nhiệm vụ con
+  const EXTRACTABLE_DOC_TYPES = [
+    'Thông báo',
+    'TB/ĐU',
+    'KL/ĐU',
+    'CVVP',
+    'TB',
+    'UBND-VP',
+  ];
+
+  function isExtractableDoc(loaiVanBan) {
+    return EXTRACTABLE_DOC_TYPES.includes(loaiVanBan);
+  }
+
   // Load departments for extraction form (if not already loaded)
   async function ensureDepartmentsLoaded() {
     if (extractState.departments.length > 0) return;
@@ -1065,7 +1079,7 @@
     });
 
     for (let i = 0; i < docs.length; i++) {
-      const isThongBao = docs[i].loaiVanBan === 'Thông báo';
+      const isThongBao = isExtractableDoc(docs[i].loaiVanBan);
       if (isThongBao) {
         // Flow: download files → upload → AI → tasks
         for (let j = 0; j < docs[i].files.length; j++) {
@@ -1278,7 +1292,7 @@
   function buildDocAccordion(doc, docIndex) {
     const title = doc.trichYeu || doc.soKyHieu || 'Văn bản ' + (docIndex + 1);
     const shortTitle = title.length > 80 ? title.substring(0, 80) + '...' : title;
-    const isThongBao = doc.loaiVanBan === 'Thông báo';
+    const isThongBao = isExtractableDoc(doc.loaiVanBan);
     let filesHtml = '';
     if (isThongBao) {
       for (let j = 0; j < doc.files.length; j++) {
@@ -1840,7 +1854,7 @@
     if (!badge) return;
     const docContent = document.getElementById(`vbdh-doc-content-${docIndex}`);
     const taskRows = docContent ? docContent.querySelectorAll('.vbdh-table tbody tr, .vbdh-extract-table tbody tr').length : 0;
-    const isThongBao = docs[docIndex].loaiVanBan === 'Thông báo';
+    const isThongBao = isExtractableDoc(docs[docIndex].loaiVanBan);
     if (isThongBao) {
       badge.textContent = `${docs[docIndex].files.length} file · ${taskRows} nhiệm vụ`;
     } else {
