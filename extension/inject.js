@@ -1703,7 +1703,7 @@
         sourceType: 'extension',
       }));
 
-      let created;
+      let created = [];
       if (documentId !== null) {
         // ThongBao: create tasks linked to uploaded document
         const res = await apiPost(`/api/v1/documents/${documentId}/create-tasks`, payload);
