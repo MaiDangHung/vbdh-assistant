@@ -1709,15 +1709,22 @@
         const res = await apiPost(`/api/v1/documents/${documentId}/create-tasks`, payload);
         created = res.data || [];
       } else {
-        // Non-ThongBao: create tasks directly via /api/v1/tasks
-        created = [];
+        // Non-ThongBao: create tasks one by one, collect successes + duplicates
+        const skipped = [];
         for (const item of payload) {
           const res = await apiPost('/api/v1/tasks', item);
-          if (res.data) created.push(res.data);
+          if (res.success !== false && res.data) {
+            created.push(res.data);
+          } else if (res.message) {
+            // Duplicate or other error — extract task title
+            skipped.push(res.message);
+          }
         }
+        let msg = `Đã tạo ${created.length} nhiệm vụ thành công!`;
+        if (skipped.length > 0) msg += `\n⚠️ ${skipped.length} nhiệm vụ đã tồn tại:\n${skipped.join('\n')}`;
+        alert(msg);
       }
-      alert(`Đã tạo ${created.length} nhiệm vụ thành công!`);
-      resultEl.innerHTML = '<div class="vbdh-extract-success">✅ Đã tạo ' + created.length + ' nhiệm vụ từ văn bản này.</div>';
+      resultEl.innerHTML = `<div class="vbdh-extract-success">✅ Đã tạo ${created.length} nhiệm vụ từ văn bản này.</div>`;
       statusEl.textContent = '✅ Đã tạo NV';
     } catch (e) {
       alert('Tạo nhiệm vụ thất bại: ' + (e.message || 'Lỗi không xác định'));
