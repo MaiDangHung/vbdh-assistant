@@ -1690,7 +1690,7 @@
 
     const btn = documentId !== null
       ? document.getElementById(`vbdh-btn-create-tasks-${documentId}`)
-      : document.querySelector('[id^="vbdh-btn-create-tasks-nonThongBao-"]');
+      : document.getElementById(`vbdh-btn-create-tasks-nonThongBao-${docIndex}`);
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Đang tạo...'; }
 
     try {
