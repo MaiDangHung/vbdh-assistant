@@ -1812,6 +1812,8 @@
     }
 
     // Push task to extractState — resolve default dept via backend
+    // Dedup: remove existing non-ThongBao task for this document
+    extractState.tasks = extractState.tasks.filter(t => !(t && t._isNonThongBao && t._documentId === documentId));
     const taskIdx = extractState.tasks.length;
     const defaultDeptId = await resolveDeptNameToId('', apiUrl);
     extractState.tasks.push({
