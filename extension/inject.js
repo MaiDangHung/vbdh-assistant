@@ -1547,6 +1547,8 @@
       const deptId = deptIds[idx] || '';
       return { idx: extractState.tasks.length + idx, title: taskTitle, description: taskDesc, departmentName: deptName, department: deptId, priority, deadline, selected: true, _documentId: documentId };
     });
+    // Remove existing tasks for this document to prevent duplicates
+    extractState.tasks = extractState.tasks.filter(t => t && t._documentId !== documentId);
     extractState.tasks.push(...newTasks);
 
     let html = '';
@@ -1684,6 +1686,8 @@
     const selectedTasks = extractState.tasks.filter(t => t && t.selected && (documentId === null ? t._isNonThongBao : t._documentId === documentId));
     if (selectedTasks.length === 0) { alert('Chọn ít nhất 1 nhiệm vụ'); return; }
 
+    if (!confirm(`Bạn có chắc muốn tạo ${selectedTasks.length} nhiệm vụ?`)) return;
+
     const btn = documentId !== null
       ? document.getElementById(`vbdh-btn-create-tasks-${documentId}`)
       : document.querySelector('[id^="vbdh-btn-create-tasks-nonThongBao-"]');
@@ -1695,7 +1699,7 @@
         description: t.description,
         departmentId: t.department || null,
         priority: t.priority,
-        deadline: t.deadline || null,
+        dueDate: t.deadline || null,
         sourceType: 'extension',
       }));
 
