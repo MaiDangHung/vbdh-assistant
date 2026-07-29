@@ -1682,8 +1682,8 @@
     btn.disabled = count === 0;
   }
 
-  async function handleCreateExtractTasks(documentId, apiUrl, statusEl, resultEl) {
-    const selectedTasks = extractState.tasks.filter(t => t && t.selected && (documentId === null ? t._isNonThongBao : t._documentId === documentId));
+  async function handleCreateExtractTasks(documentId, apiUrl, statusEl, resultEl, docIndex) {
+    const selectedTasks = extractState.tasks.filter(t => t && t.selected && (documentId === null ? (t._isNonThongBao && t._docIndex === docIndex) : t._documentId === documentId));
     if (selectedTasks.length === 0) { alert('Chọn ít nhất 1 nhiệm vụ'); return; }
 
     if (!confirm(`Bạn có chắc muốn tạo ${selectedTasks.length} nhiệm vụ?`)) return;
@@ -1826,7 +1826,8 @@
       deadline: '',
       selected: true,
       _documentId: documentId,
-      _isNonThongBao: true
+      _isNonThongBao: true,
+      _docIndex: docIndex
     });
 
     if (resultEl) {
@@ -1907,16 +1908,18 @@
 
       const createBtn = document.getElementById(`vbdh-btn-create-tasks-nonThongBao-${docIndex}`);
       if (createBtn) {
-        createBtn.addEventListener('click', () => handleCreateExtractTasks(null, getApiUrl(), statusEl, resultEl));
+        const currentDocIndex = docIndex;
+      createBtn.addEventListener('click', () => handleCreateExtractTasks(null, getApiUrl(), statusEl, resultEl, currentDocIndex));
       }
     }
   }
 
   function updateCreateButtonNonThongBao(docIndex) {
+    // docIndex already passed
     const btn = document.getElementById(`vbdh-btn-create-tasks-nonThongBao-${docIndex}`);
     if (!btn) return;
     // Count selected tasks without _documentId (non-ThongBao tasks)
-    const count = extractState.tasks.filter(t => t && t.selected && t._isNonThongBao).length;
+    const count = extractState.tasks.filter(t => t && t.selected && t._isNonThongBao && t._docIndex === docIndex).length;
     btn.textContent = `✅ Tạo nhiệm vụ (${count})`;
     btn.disabled = count === 0;
   }
