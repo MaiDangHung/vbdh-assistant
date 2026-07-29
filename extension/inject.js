@@ -1812,10 +1812,16 @@
     }
 
     // Push task to extractState — resolve default dept via backend
-    // Dedup: remove existing non-ThongBao task for this document
-    extractState.tasks = extractState.tasks.filter(t => !(t && t._isNonThongBao && t._documentId === documentId));
-    const taskIdx = extractState.tasks.length;
+    // Check if task already exists for this document — if so, preserve user edits
+    const existingIdx = extractState.tasks.findIndex(t => t && t._isNonThongBao && t._documentId === documentId);
     const defaultDeptId = await resolveDeptNameToId('', apiUrl);
+    if (existingIdx >= 0) {
+      // Task already exists — update title/description only, keep user's department/deadline edits
+      const existing = extractState.tasks[existingIdx];
+      existing.title = title;
+      existing.description = aiSummary || title;
+    } else {
+      const taskIdx = extractState.tasks.length;
     extractState.tasks.push({
       idx: taskIdx,
       title: title,
@@ -1829,6 +1835,7 @@
       _isNonThongBao: true,
       _docIndex: docIndex
     });
+    } // end else
 
     if (resultEl) {
       let html = '';
@@ -1844,22 +1851,24 @@
       html += '<th style="width:140px">Phòng ban</th>';
       html += '<th style="width:32px"></th>';
       html += '</tr></thead><tbody>';
-      const t = extractState.tasks[taskIdx];
-      html += `<tr data-task-idx="${taskIdx}">`;
-      html += `<td><input type="checkbox" class="vbdh-extract-check" data-idx="${taskIdx}" ${t.selected ? 'checked' : ''}></td>`;
+      // Use existing task (preserve edits) or newly pushed task
+      const actualIdx = existingIdx >= 0 ? existingIdx : (extractState.tasks.length - 1);
+      const t = extractState.tasks[actualIdx];
+      html += `<tr data-task-idx="${actualIdx}">`;
+      html += `<td><input type="checkbox" class="vbdh-extract-check" data-idx="${actualIdx}" ${t.selected ? 'checked' : ''}></td>`;
       html += `<td style="text-align:left"><b>${escapeHtml(t.title)}</b></td>`;
-      html += `<td><select class="vbdh-extract-priority" data-idx="${taskIdx}" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;">`;
-      html += '<option value="CAO">Cao</option>';
-      html += '<option value="BINH_THUONG" selected>Bình thường</option>';
-      html += '<option value="THAP">Thấp</option>';
+      html += `<td><select class="vbdh-extract-priority" data-idx="${actualIdx}" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;">`;
+      html += `<option value="CAO"${t.priority === 'CAO' ? ' selected' : ''}>Cao</option>`;
+      html += `<option value="BINH_THUONG"${t.priority === 'BINH_THUONG' ? ' selected' : ''}>Bình thường</option>`;
+      html += `<option value="THAP"${t.priority === 'THAP' ? ' selected' : ''}>Thấp</option>`;
       html += '</select></td>';
-      html += `<td><input type="date" class="vbdh-extract-deadline" data-idx="${taskIdx}" value="" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;"></td>`;
-      html += `<td><select class="vbdh-extract-dept" data-idx="${taskIdx}" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;"><option value="">-- Phòng ban --</option>`;
+      html += `<td><input type="date" class="vbdh-extract-deadline" data-idx="${actualIdx}" value="${t.deadline || ''}" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;"></td>`;
+      html += `<td><select class="vbdh-extract-dept" data-idx="${actualIdx}" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;"><option value="">-- Phòng ban --</option>`;
       for (const dept of extractState.departments) {
         html += `<option value="${dept.id}"${t.department === dept.id ? ' selected' : ''}>${escapeHtml(dept.name)}</option>`;
       }
       html += '</select></td>';
-      html += `<td><button class="vbdh-extract-del" data-idx="${taskIdx}" title="Xóa" style="background:none;border:none;color:#ff4d4f;cursor:pointer;font-size:16px;">✕</button></td>`;
+      html += `<td><button class="vbdh-extract-del" data-idx="${actualIdx}" title="Xóa" style="background:none;border:none;color:#ff4d4f;cursor:pointer;font-size:16px;">✕</button></td>`;
       html += '</tr>';
       html += '</tbody></table></div>';
       // Create tasks button
