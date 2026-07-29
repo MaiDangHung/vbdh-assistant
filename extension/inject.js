@@ -1571,7 +1571,7 @@
         const gIdx = t.idx; // global index in extractState.tasks
         html += `<tr data-task-idx="${gIdx}">`;
         html += `<td><input type="checkbox" class="vbdh-extract-check" data-idx="${gIdx}" ${t.selected ? 'checked' : ''}></td>`;
-        html += `<td style="text-align:left"><b>${escapeHtml(t.title)}</b>`;
+        html += `<td style="text-align:left"><b class="vbdh-task-title">${escapeHtml(t.title)}</b>`;
         if (t.description && t.description !== t.title) html += `<div class="vbdh-task-desc">${escapeHtml(t.description)}</div>`;
         html += '</td>';
         // Priority select
@@ -1677,16 +1677,51 @@
   function updateCreateButton(documentId) {
     const btn = document.getElementById(`vbdh-btn-create-tasks-${documentId}`);
     if (!btn) return;
-    const count = extractState.tasks.filter(t => t && t.selected && t._documentId === documentId).length;
+    // Count from DOM checkboxes — reliable regardless of extractState array drift
+    const table = btn.closest('.vbdh-extract-table') || document.querySelector(`#vbdh-btn-create-tasks-${documentId}`)?.closest('.vbdh-table');
+    let count = 0;
+    if (table) {
+      const tbody = table.querySelector('tbody');
+      if (tbody) count = Array.from(tbody.querySelectorAll('.vbdh-extract-check')).filter(cb => cb.checked).length;
+    }
     btn.textContent = `✅ Tạo nhiệm vụ (${count})`;
     btn.disabled = count === 0;
   }
 
   async function handleCreateExtractTasks(documentId, apiUrl, statusEl, resultEl, docIndex) {
-    const selectedTasks = extractState.tasks.filter(t => t && t.selected && (documentId === null ? (t._isNonThongBao && t._docIndex === docIndex) : t._documentId === documentId));
-    if (selectedTasks.length === 0) { alert('Chọn ít nhất 1 nhiệm vụ'); return; }
+    // Read task data directly from DOM table rows — more reliable than extractState array
+    // (avoids index drift from delete/re-process race conditions)
+    const tbody = resultEl.querySelector('.vbdh-extract-table tbody');
+    if (!tbody) { alert('Không tìm thấy danh sách nhiệm vụ'); return; }
 
-    if (!confirm(`Bạn có chắc muốn tạo ${selectedTasks.length} nhiệm vụ?`)) return;
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const tasksFromDom = [];
+    for (const row of rows) {
+      const checkEl = row.querySelector('.vbdh-extract-check');
+      if (!checkEl || !checkEl.checked) continue; // only checked tasks
+
+      const titleEl = row.querySelector('.vbdh-task-title');
+      const title = titleEl ? titleEl.textContent.trim() : '';
+      if (!title) continue;
+
+      const descEl = row.querySelector('.vbdh-task-desc');
+      const priorityEl = row.querySelector('.vbdh-extract-priority');
+      const deadlineEl = row.querySelector('.vbdh-extract-deadline');
+      const deptEl = row.querySelector('.vbdh-extract-dept');
+
+      tasksFromDom.push({
+        title: title,
+        description: descEl ? descEl.textContent.trim() : title,
+        priority: priorityEl ? priorityEl.value : 'BINH_THUONG',
+        dueDate: deadlineEl ? (deadlineEl.value || null) : null,
+        departmentId: deptEl ? (deptEl.value || null) : null,
+        sourceType: 'extension',
+      });
+    }
+
+    if (tasksFromDom.length === 0) { alert('Chọn ít nhất 1 nhiệm vụ (tick checkbox)'); return; }
+
+    if (!confirm(`Bạn có chắc muốn tạo ${tasksFromDom.length} nhiệm vụ?`)) return;
 
     const btn = documentId !== null
       ? document.getElementById(`vbdh-btn-create-tasks-${documentId}`)
@@ -1694,41 +1729,39 @@
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Đang tạo...'; }
 
     try {
-      const payload = selectedTasks.map(t => ({
-        title: t.title,
-        description: t.description,
-        departmentId: t.department || null,
-        priority: t.priority,
-        dueDate: t.deadline || null,
-        sourceType: 'extension',
-      }));
-
+      const payload = tasksFromDom;
       let created = [];
+      let skipped = [];
+
       if (documentId !== null) {
         // ThongBao: create tasks linked to uploaded document
         const res = await apiPost(`/api/v1/documents/${documentId}/create-tasks`, payload);
-        created = res.data || [];
+        const results = res.data || [];
+        for (const r of results) {
+          if (r.skipped) { skipped.push(r.title + ' (' + r.reason + ')'); }
+          else { created.push(r); }
+        }
       } else {
-        // Non-ThongBao: create tasks one by one, collect successes + duplicates
-        const skipped = [];
+        // Non-ThongBao: create tasks one by one
         for (const item of payload) {
           const res = await apiPost('/api/v1/tasks', item);
           if (res.success !== false && res.data) {
             created.push(res.data);
           } else if (res.message) {
-            // Duplicate or other error — extract task title
             skipped.push(res.message);
           }
         }
-        let msg = `Đã tạo ${created.length} nhiệm vụ thành công!`;
-        if (skipped.length > 0) msg += `\n⚠️ ${skipped.length} nhiệm vụ đã tồn tại:\n${skipped.join('\n')}`;
-        alert(msg);
       }
+
+      let msg = `Đã tạo ${created.length} nhiệm vụ thành công!`;
+      if (skipped.length > 0) msg += `\n⚠️ ${skipped.length} nhiệm vụ đã tồn tại:\n${skipped.join('\n')}`;
+      alert(msg);
       resultEl.innerHTML = `<div class="vbdh-extract-success">✅ Đã tạo ${created.length} nhiệm vụ từ văn bản này.</div>`;
       statusEl.textContent = '✅ Đã tạo NV';
     } catch (e) {
       alert('Tạo nhiệm vụ thất bại: ' + (e.message || 'Lỗi không xác định'));
-      if (btn) { btn.disabled = false; btn.textContent = `✅ Tạo nhiệm vụ (${selectedTasks.length})`; }
+      const fallbackCount = tasksFromDom.length;
+      if (btn) { btn.disabled = false; btn.textContent = `✅ Tạo nhiệm vụ (${fallbackCount})`; }
     }
   }
 
@@ -1863,7 +1896,7 @@
       const t = extractState.tasks[actualIdx];
       html += `<tr data-task-idx="${actualIdx}">`;
       html += `<td><input type="checkbox" class="vbdh-extract-check" data-idx="${actualIdx}" ${t.selected ? 'checked' : ''}></td>`;
-      html += `<td style="text-align:left"><b>${escapeHtml(t.title)}</b></td>`;
+      html += `<td style="text-align:left"><b class="vbdh-task-title">${escapeHtml(t.title)}</b></td>`;
       html += `<td><select class="vbdh-extract-priority" data-idx="${actualIdx}" style="width:100%;padding:4px;font-size:12px;border:1px solid #d0d5dd;border-radius:4px;">`;
       html += `<option value="CAO"${t.priority === 'CAO' ? ' selected' : ''}>Cao</option>`;
       html += `<option value="BINH_THUONG"${t.priority === 'BINH_THUONG' ? ' selected' : ''}>Bình thường</option>`;
@@ -1931,11 +1964,15 @@
   }
 
   function updateCreateButtonNonThongBao(docIndex) {
-    // docIndex already passed
     const btn = document.getElementById(`vbdh-btn-create-tasks-nonThongBao-${docIndex}`);
     if (!btn) return;
-    // Count selected tasks without _documentId (non-ThongBao tasks)
-    const count = extractState.tasks.filter(t => t && t.selected && t._isNonThongBao && t._docIndex === docIndex).length;
+    // Count from DOM checkboxes in same container as button
+    const container = btn.closest('.vbdh-extract-table') || btn.parentElement?.previousElementSibling;
+    let count = 0;
+    if (container) {
+      const tbody = container.querySelector('tbody');
+      if (tbody) count = Array.from(tbody.querySelectorAll('.vbdh-extract-check')).filter(cb => cb.checked).length;
+    }
     btn.textContent = `✅ Tạo nhiệm vụ (${count})`;
     btn.disabled = count === 0;
   }
