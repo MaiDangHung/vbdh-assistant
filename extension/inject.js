@@ -1677,12 +1677,11 @@
   function updateCreateButton(documentId) {
     const btn = document.getElementById(`vbdh-btn-create-tasks-${documentId}`);
     if (!btn) return;
-    // Count from DOM checkboxes — reliable regardless of extractState array drift
-    const table = btn.closest('.vbdh-extract-table') || document.querySelector(`#vbdh-btn-create-tasks-${documentId}`)?.closest('.vbdh-table');
+    // Count from DOM checkboxes within the same result container
+    const container = btn.closest('[id^="vbdh-result-"]');
     let count = 0;
-    if (table) {
-      const tbody = table.querySelector('tbody');
-      if (tbody) count = Array.from(tbody.querySelectorAll('.vbdh-extract-check')).filter(cb => cb.checked).length;
+    if (container) {
+      count = Array.from(container.querySelectorAll('.vbdh-extract-check')).filter(cb => cb.checked).length;
     }
     btn.textContent = `✅ Tạo nhiệm vụ (${count})`;
     btn.disabled = count === 0;
@@ -1966,12 +1965,11 @@
   function updateCreateButtonNonThongBao(docIndex) {
     const btn = document.getElementById(`vbdh-btn-create-tasks-nonThongBao-${docIndex}`);
     if (!btn) return;
-    // Count from DOM checkboxes in same container as button
-    const container = btn.closest('.vbdh-extract-table') || btn.parentElement?.previousElementSibling;
+    // Count from DOM checkboxes within the same result container
+    const container = btn.closest('[id^="vbdh-result-"]');
     let count = 0;
     if (container) {
-      const tbody = container.querySelector('tbody');
-      if (tbody) count = Array.from(tbody.querySelectorAll('.vbdh-extract-check')).filter(cb => cb.checked).length;
+      count = Array.from(container.querySelectorAll('.vbdh-extract-check')).filter(cb => cb.checked).length;
     }
     btn.textContent = `✅ Tạo nhiệm vụ (${count})`;
     btn.disabled = count === 0;
