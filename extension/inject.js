@@ -1708,11 +1708,13 @@
       const deadlineEl = row.querySelector('.vbdh-extract-deadline');
       const deptEl = row.querySelector('.vbdh-extract-dept');
 
+      const deadlineValue = deadlineEl ? (deadlineEl.value || null) : null;
       tasksFromDom.push({
         title: title,
         description: descEl ? descEl.textContent.trim() : title,
         priority: priorityEl ? priorityEl.value : 'BINH_THUONG',
-        dueDate: deadlineEl ? (deadlineEl.value || null) : null,
+        dueDate: deadlineValue,    // TaskController reads "dueDate"
+        deadline: deadlineValue,   // DocumentService reads "deadline"
         departmentId: deptEl ? (deptEl.value || null) : null,
         sourceType: 'extension',
       });
