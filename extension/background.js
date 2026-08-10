@@ -6,7 +6,7 @@
 const DEFAULT_API_BASE = 'https://tbklhoatien.danangsite.com.vn';
 
 // Debug: confirm service worker loaded
-console.log('[VBDH] background.js loaded - v2.3.0');
+console.log('[VBDH] background.js loaded - v2.4.0');
 
 // ===== Capture download URLs from VB đi file clicks =====
 const capturedDownloadUrls = new Map(); // cacheKey -> [{name, url}]
