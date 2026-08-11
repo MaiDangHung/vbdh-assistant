@@ -23,7 +23,7 @@
   const isStaff = role === 'STAFF';
 
   // State objects (must be declared before entry point)
-  const extractState = { tasks: [], departments: [] };
+  const extractState = { tasks: [], departments: [], docs: [] };
 
   // Entry point
   toggleVbdhModal();
@@ -609,6 +609,10 @@
         <label>Mô tả</label>
         <textarea id="vbdh-ct-desc" rows="3" placeholder="Mô tả chi tiết..." class="vbdh-input"></textarea>
       </div>
+      <div class="vbdh-form-group">
+        <label>Số hiệu văn bản giao</label>
+        <input type="text" id="vbdh-ct-sohieu" placeholder="VD: 123/UBND-VP" class="vbdh-input">
+      </div>
       <div class="vbdh-form-row">
         <div class="vbdh-form-group">
           <label>Ưu tiên</label>
@@ -646,6 +650,7 @@
       const payload = {
         title,
         description: document.getElementById('vbdh-ct-desc').value.trim(),
+        soHieuVanBanGiao: document.getElementById('vbdh-ct-sohieu').value.trim() || null,
         priority: document.getElementById('vbdh-ct-priority').value,
         dueDate: document.getElementById('vbdh-ct-deadline').value || null,
         departmentId: dept,
@@ -679,6 +684,10 @@
       <div class="vbdh-form-group">
         <label>Mô tả</label>
         <textarea id="vbdh-et-desc" rows="3" class="vbdh-input">${escapeHtml(task.description || '')}</textarea>
+      </div>
+      <div class="vbdh-form-group">
+        <label>Số hiệu văn bản giao</label>
+        <input type="text" id="vbdh-et-sohieu" value="${escapeHtml(task.soHieuVanBanGiao || '')}" placeholder="VD: 123/UBND-VP" class="vbdh-input">
       </div>
       <div class="vbdh-form-row">
         <div class="vbdh-form-group">
@@ -723,6 +732,7 @@
       const payload = {
         title,
         description: document.getElementById('vbdh-et-desc').value.trim(),
+        soHieuVanBanGiao: document.getElementById('vbdh-et-sohieu').value.trim() || null,
         priority: document.getElementById('vbdh-et-priority').value,
         deadline: document.getElementById('vbdh-et-deadline').value || null,
         sourceType: document.getElementById('vbdh-et-source').value,
@@ -877,6 +887,7 @@
         <div class="vbdh-detail-grid">
           <div class="vbdh-detail-row"><b>Tiêu đề:</b> ${escapeHtml(t.title)}</div>
           <div class="vbdh-detail-row"><b>Mô tả:</b> ${escapeHtml(t.description || '-')}</div>
+          <div class="vbdh-detail-row"><b>Số hiệu VB:</b> ${escapeHtml(t.soHieuVanBanGiao || '-')}</div>
           <div class="vbdh-detail-row"><b>Ưu tiên:</b> ${escapeHtml(t.priority || '-')}</div>
           <div class="vbdh-detail-row"><b>Hạn xử lý:</b> ${t.deadline ? formatDateShort(t.deadline) : '-'}</div>
           <div class="vbdh-detail-row"><b>Phòng ban:</b> ${escapeHtml(t.assignedDepartmentName || '-')}</div>
@@ -1074,6 +1085,7 @@
     }
 
     let html = '';
+    extractState.docs = docs; // store for later access (soHieuVanBanGiao)
     for (let i = 0; i < docs.length; i++) {
       html += buildDocAccordion(docs[i], i);
     }
@@ -1693,6 +1705,10 @@
     const tbody = resultEl.querySelector('.vbdh-extract-table tbody');
     if (!tbody) { alert('Không tìm thấy danh sách nhiệm vụ'); return; }
 
+    // Get soKyHieu from doc data for soHieuVanBanGiao field
+    const docData = (docIndex !== undefined && extractState.docs[docIndex]) ? extractState.docs[docIndex] : null;
+    const soHieuVanBanGiao = docData ? (docData.soKyHieu || null) : null;
+
     const rows = Array.from(tbody.querySelectorAll('tr'));
     const tasksFromDom = [];
     for (const row of rows) {
@@ -1717,6 +1733,7 @@
         deadline: deadlineValue,   // DocumentService reads "deadline"
         departmentId: deptEl ? (deptEl.value || null) : null,
         sourceType: 'extension',
+        soHieuVanBanGiao: soHieuVanBanGiao,
       });
     }
 
