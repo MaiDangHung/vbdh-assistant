@@ -1028,13 +1028,14 @@
   // Resolve department name via backend (single source of truth)
   // Now calls POST /api/v1/departments/resolve on tbkl backend
   async function resolveDeptNameToId(name, apiUrl) {
-    if (!name || !name.trim()) return '';
+    // Allow empty string — backend will fallback to VPHDND
+    const trimmedName = (name || '').trim();
     const baseUrl = apiUrl.replace('/api/v1/ext', '/api/v1');
     try {
       const res = await fetchWithRefresh(`${baseUrl}/departments/resolve`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({ name: trimmedName })
       });
       if (!res.ok) return '';
       const json = await res.json();
@@ -1404,6 +1405,14 @@
       const cacheResult = await checkCache(apiUrl, cacheKey);
 
       if (cacheResult.found && cacheResult.documentId) {
+        // Check if document already has tasks
+        const hasTasks = await checkDocHasTasks(apiUrl, cacheResult.documentId);
+        if (hasTasks) {
+          statusEl.className = 'vbdh-status vbdh-status-done';
+          statusEl.textContent = '✅ Đã có NV';
+          resultEl.innerHTML = '<div class="vbdh-info" style="padding:12px;background:#f0f5ff;border:1px solid #adc6ff;border-radius:4px;color:#003a8c;">📋 Văn bản này đã được tạo nhiệm vụ. Để tạo lại, vui lòng xóa các nhiệm vụ cũ trong hệ thống.</div>';
+          return;
+        }
         if ((cacheResult.status === 'completed' || cacheResult.status === 'extracted') && cacheResult.extractionResult) {
           statusEl.className = 'vbdh-status vbdh-status-done';
           statusEl.textContent = '⚡ Cache';
@@ -1471,6 +1480,17 @@
       if (data && data.exists) return { found: true, documentId: data.documentId, status: data.status, extractionResult: data.extractionResult || null };
     } catch (e) { console.warn('[VBDH] Cache check error:', e); }
     return { found: false };
+  }
+
+  // Check if document already has tasks created
+  async function checkDocHasTasks(apiUrl, documentId) {
+    try {
+      const res = await fetchWithRefresh(`${apiUrl}/documents/task-counts`, { headers: getAuthHeaders() });
+      if (!res.ok) return false;
+      const json = await res.json();
+      const counts = json.data || {};
+      return (counts[documentId] || 0) > 0;
+    } catch (e) { return false; }
   }
 
   async function pollUntilDone(apiUrl, documentId, statusEl) {
@@ -1549,16 +1569,25 @@
       }
     }
 
-    // Parse tasks into editable format
-    const newTasks = rawTasks.map((t, idx) => {
+    // Parse tasks into editable format (need for-loop for async fallback)
+    const newTasks = [];
+    // Pre-resolve fallback VPHDND once for all unmatched tasks
+    let fallbackDeptId = '';
+    const hasUnmatched = deptIds.some(id => !id);
+    if (hasUnmatched) {
+      fallbackDeptId = await resolveDeptNameToId('', apiUrl);
+    }
+    for (let idx = 0; idx < rawTasks.length; idx++) {
+      const t = rawTasks[idx];
       const taskTitle = typeof t === 'string' ? t : (t.title || '');
       const taskDesc = (typeof t === 'object' && t.description) ? t.description : '';
       const deptName = (typeof t === 'object' && t.department) ? t.department : '';
       const deadline = (typeof t === 'object' && (t.deadline || t.dueDate)) ? (t.deadline || t.dueDate) : '';
       const priority = (typeof t === 'object' && t.priority === 'urgent') ? 'CAO' : 'BINH_THUONG';
-      const deptId = deptIds[idx] || '';
-      return { idx: extractState.tasks.length + idx, title: taskTitle, description: taskDesc, departmentName: deptName, department: deptId, priority, deadline, selected: true, _documentId: documentId };
-    });
+      let deptId = deptIds[idx] || fallbackDeptId || '';
+      const deptNameDisplay = deptName || 'Văn phòng HĐND-UBND';
+      newTasks.push({ idx: extractState.tasks.length + idx, title: taskTitle, description: taskDesc, departmentName: deptNameDisplay, department: deptId, priority, deadline, selected: true, _documentId: documentId });
+    }
     // Remove existing tasks for this document to prevent duplicates
     extractState.tasks = extractState.tasks.filter(t => t && t._documentId !== documentId);
     extractState.tasks.push(...newTasks);
