@@ -1002,18 +1002,16 @@
   // EXTRACT DOCUMENTS (kept from original inject.js)
   // ===================================================================
 
-  // Các loại văn bản được trích xuất nhiều nhiệm vụ con
-  const EXTRACTABLE_DOC_TYPES = [
-    'Thông báo',
-    'TB/ĐU',
-    'KL/ĐU',
-    'CVVP',
-    'TB',
-    'UBND-VP',
-  ];
-
-  function isExtractableDoc(loaiVanBan) {
-    return EXTRACTABLE_DOC_TYPES.includes(loaiVanBan);
+  // Phân loại theo Sổ văn bản:
+  // - 'công văn đến' (vd: 'Sổ Công văn đến UBND xã Hòa Tiến 2026') → Non-Thông báo: 1 nhiệm vụ (AI tóm tắt)
+  // - 'công văn' nhưng KHÔNG chứa 'công văn đến' (vd: 'Sổ Công văn UBND xã Hòa Tiến 2026') → Thông báo: nhiều nhiệm vụ (AI trích xuất)
+  // - Trường hợp khác → mặc định Non-Thông báo
+  function isExtractableDoc(doc) {
+    const soVanBan = (doc && doc.soVanBan || '').toLowerCase();
+    if (!soVanBan) return false; // không có sổ văn bản → mặc định non-thông báo
+    if (soVanBan.includes('công văn đến')) return false; // công văn đến → non-thông báo
+    if (soVanBan.includes('công văn')) return true; // công văn (đi) → thông báo
+    return false; // mặc định non-thông báo
   }
 
   // Load departments for extraction form (if not already loaded)
@@ -1113,7 +1111,7 @@
     });
 
     for (let i = 0; i < docs.length; i++) {
-      const isThongBao = isExtractableDoc(docs[i].loaiVanBan);
+      const isThongBao = isExtractableDoc(docs[i]);
       if (isThongBao) {
         // Flow: download files → upload → AI → tasks
         for (let j = 0; j < docs[i].files.length; j++) {
@@ -1326,7 +1324,7 @@
   function buildDocAccordion(doc, docIndex) {
     const title = doc.trichYeu || doc.soKyHieu || 'Văn bản ' + (docIndex + 1);
     const shortTitle = title.length > 80 ? title.substring(0, 80) + '...' : title;
-    const isThongBao = isExtractableDoc(doc.loaiVanBan);
+    const isThongBao = isExtractableDoc(doc);
     let filesHtml = '';
     if (isThongBao) {
       for (let j = 0; j < doc.files.length; j++) {
@@ -2029,7 +2027,7 @@
     if (!badge) return;
     const docContent = document.getElementById(`vbdh-doc-content-${docIndex}`);
     const taskRows = docContent ? docContent.querySelectorAll('.vbdh-table tbody tr, .vbdh-extract-table tbody tr').length : 0;
-    const isThongBao = isExtractableDoc(docs[docIndex].loaiVanBan);
+    const isThongBao = isExtractableDoc(docs[docIndex]);
     if (isThongBao) {
       badge.textContent = `${docs[docIndex].files.length} file · ${taskRows} nhiệm vụ`;
     } else {
