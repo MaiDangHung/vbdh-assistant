@@ -848,6 +848,10 @@
         <label>Ghi chú</label>
         <textarea id="vbdh-pg-note" rows="2" class="vbdh-input" placeholder="Mô tả tiến độ..."></textarea>
       </div>
+      <div class="vbdh-form-group">
+        <label>📁 File minh chứng (tùy chọn)</label>
+        <input type="file" id="vbdh-pg-files" multiple accept=".doc,.docx,.pdf,.xls,.xlsx,.ppt,.pptx" class="vbdh-input" style="padding:4px">
+      </div>
       <div class="vbdh-form-actions">
         <button class="vbdh-btn" id="vbdh-pg-cancel">Hủy</button>
         <button class="vbdh-btn vbdh-btn-primary" id="vbdh-pg-submit">Cập nhật</button>
@@ -861,9 +865,28 @@
     overlay.querySelector('#vbdh-pg-cancel').onclick = () => overlay.remove();
     overlay.querySelector('#vbdh-pg-submit').onclick = async () => {
       try {
+        const fileInput = document.getElementById('vbdh-pg-files');
+        const files = fileInput && fileInput.files && fileInput.files.length > 0 ? Array.from(fileInput.files) : [];
+        let filePaths = null;
+
+        // Upload files first if any
+        if (files.length > 0) {
+          const formData = new FormData();
+          for (const f of files) formData.append('files', f);
+          const uploadRes = await fetchWithRefresh(`${getApiBase().replace('/api/v1/ext', '/api/v1')}/tasks/${taskId}/progress/files`, {
+            method: 'POST',
+            body: formData,
+            headers: getAuthHeaders(),
+          });
+          if (!uploadRes.ok) throw new Error('Upload file thất bại');
+          const uploadData = await uploadRes.json();
+          filePaths = JSON.stringify(uploadData.data || uploadData);
+        }
+
         await apiPost(`/api/v1/tasks/${taskId}/progress`, {
           percent: parseInt(slider.value),
           note: document.getElementById('vbdh-pg-note').value,
+          filePaths,
         });
         overlay.remove();
         const body = document.getElementById('vbdh-body');
@@ -911,6 +934,27 @@
       if (t.documentId) {
         html += `<div class="vbdh-detail-section"><a href="${getApiBase()}/api/v1/documents/${t.documentId}/download" target="_blank" class="vbdh-link">📎 Tải file gốc</a></div>`;
       }
+
+      // Progress history with files
+      try {
+        const pgRes = await apiGet(`/api/v1/tasks/${taskId}/progress`);
+        const pgHistory = pgRes.data?.data || pgRes.data || [];
+        const withFiles = pgHistory.filter(p => p.filePaths);
+        if (withFiles.length > 0) {
+          html += '<div class="vbdh-detail-section"><b>📁 File minh chứng:</b></div><div class="vbdh-detail-files">';
+          for (const p of withFiles) {
+            let files = [];
+            try { files = typeof p.filePaths === 'string' ? JSON.parse(p.filePaths) : p.filePaths; } catch {}
+            if (Array.isArray(files)) {
+              for (const fp of files) {
+                const fn = fp.split('/').pop().replace(/^[a-f0-9-]+_/, '');
+                html += `<div class="vbdh-detail-row"><span>📎 ${escapeHtml(fn)}</span> <span style="color:#999;font-size:12px">— ${p.userFullName || p.userName || ''} (${p.progress}%)</span></div>`;
+              }
+            }
+          }
+          html += '</div>';
+        }
+      } catch {}
 
       overlay.querySelector('.vbdh-modal-body').innerHTML = html;
     } catch (e) {
