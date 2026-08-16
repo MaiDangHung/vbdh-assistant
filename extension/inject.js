@@ -492,10 +492,7 @@
       btns += `<button class="vbdh-btn vbdh-btn-sm" style="background:#fa8c16;color:#fff" data-action="submit" data-id="${t.id}" ${canSubmit ? '' : 'disabled title="Tiến độ phải đạt 100%"'}>📤 Gửi duyệt</button>`;
     }
 
-    // Hoàn thành — ADMIN/CHIEF/DEPUTY (trực tiếp)
-    if (isChiefLike && !['completed', 'cancelled', 'pending_review'].includes(sv)) {
-      btns += `<button class="vbdh-btn vbdh-btn-sm" style="background:#52c41a;color:#fff" data-action="complete" data-id="${t.id}">✔️ Hoàn thành</button>`;
-    }
+    // [REMOVED] ADMIN direct complete (bypass CVP) — mọi task phải qua CVP duyệt
 
     // Hoàn thành — DEPT_HEAD (gửi duyệt)
     if (isDeptHead && ['dept_assigned', 'in_progress', 'dept_rejected'].includes(sv)) {
@@ -558,14 +555,6 @@
         try {
           await apiPost(`/api/v1/tasks/${id}/submit`, { note: '' });
           alert('✅ Đã gửi yêu cầu duyệt');
-          loadTasks(body);
-        } catch (e) { alert('❌ ' + e.message); }
-        break;
-      case 'complete':
-        if (!confirm('Hoàn thành nhiệm vụ này?')) return;
-        try {
-          await apiPut(`/api/v1/tasks/${id}/complete`);
-          alert('✅ Đã hoàn thành');
           loadTasks(body);
         } catch (e) { alert('❌ ' + e.message); }
         break;
