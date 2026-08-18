@@ -345,7 +345,7 @@
         { key: '', label: '📋 Tất cả' },
         { key: 'dept_assigned', label: '👥 Đã giao NV' },
         { key: 'dept_assigned', label: '👥 Đã giao NV' },
-        { key: 'pending_review', label: '⏳ Chờ CVP duyệt' },
+        { key: 'pending_review', label: '⏳ Chờ duyệt' },
         { key: 'dept_rejected', label: '⚠️ Bị trả lại' },
         { key: 'completed', label: '✅ Hoàn thành' },
       ];
@@ -355,7 +355,7 @@
       { key: '', label: '📋 Tất cả' },
       { key: 'dept_assigned', label: '📥 Đã nhận' },
       { key: 'in_progress', label: '🔄 Đang làm' },
-      { key: 'pending_review', label: '⏳ Chờ CVP duyệt' },
+      { key: 'pending_review', label: '⏳ Chờ duyệt' },
       { key: 'dept_rejected', label: '⚠️ Cần sửa lại' },
       { key: 'completed', label: '✅ Hoàn thành' },
     ];
