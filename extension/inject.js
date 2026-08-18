@@ -475,10 +475,7 @@
     // Chi tiết — all
     btns += `<button class="vbdh-btn vbdh-btn-sm" data-action="detail" data-id="${t.id}">👁 Chi tiết</button>`;
 
-    // Phân công NV — DEPT_HEAD, status = assigned
-    if (isDeptHead && sv === 'assigned') {
-      btns += `<button class="vbdh-btn vbdh-btn-sm vbdh-btn-primary" data-action="assign" data-id="${t.id}" data-dept="${t.assignedDepartmentId || ''}">👤 Phân công</button>`;
-    }
+    // [REMOVED] Phân công NV — task giờ auto-giao mọi STAFF trong phòng khi tạo
 
     // Duyệt (CVP/Lãnh đạo) — ADMIN/CHIEF/DEPUTY, status = pending_review
     if (isChiefLike && sv === 'pending_review') {
