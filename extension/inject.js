@@ -2130,12 +2130,7 @@
     let currentKeyword = '';
     const pageSize = 10;
 
-    async function fetchDocs(page, keyword) {
-      const params = new URLSearchParams({ page, size: pageSize });
-      if (keyword) params.append('keyword', keyword);
-      const data = await apiGet(`/api/v1/documents?${params}`);
-      return data.data; // Page object
-    }
+    // ── helpers ──────────────────────────────────────────────────────────────
 
     function fmtDate(v) {
       if (!v) return '-';
@@ -2152,7 +2147,393 @@
       extracted: '#52c41a', classified: '#52c41a', completed: '#52c41a', error: '#ff4d4f',
     };
 
-    function renderDocs(pageData) {
+    function parseExtractionTasks(data) {
+      if (!data) return [];
+      let inner = data;
+      if (data.data && typeof data.data === 'object' && !Array.isArray(data.data)) inner = data.data;
+      if (inner.tasks && Array.isArray(inner.tasks)) {
+        return inner.tasks.map((t, idx) => ({
+          idx,
+          title: t.title || t.content || t.task || `Nhiệm vụ ${idx + 1}`,
+          description: [t.description || t.detail || '', t.deadline ? `Hạn: ${t.deadline}` : ''].filter(Boolean).join('\n'),
+          departmentName: t.department || '',
+          departmentId: '',
+          priority: t.priority === 'urgent' ? 'CAO' : 'BINH_THUONG',
+          deadline: t.deadline || t.dueDate || '',
+          selected: true,
+        }));
+      }
+      if (inner.task || inner.title) {
+        return [{
+          idx: 0,
+          title: inner.title || inner.task || 'Nhiệm vụ 1',
+          description: [inner.description || inner.detail || '', inner.deadline ? `Hạn: ${inner.deadline}` : ''].filter(Boolean).join('\n'),
+          departmentName: inner.department || '',
+          departmentId: '',
+          priority: inner.priority === 'urgent' ? 'CAO' : 'BINH_THUONG',
+          deadline: inner.deadline || '',
+          selected: true,
+        }];
+      }
+      if (inner.raw) return [{ idx: 0, title: inner.raw.substring(0, 300), description: '', departmentName: '', departmentId: '', priority: 'BINH_THUONG', deadline: '', selected: true }];
+      return [];
+    }
+
+    async function resolveDeptsBatch(tasks) {
+      if (!tasks.length) return tasks;
+      try {
+        const res = await apiPost('/api/v1/departments/resolve-batch', { names: tasks.map(t => t.departmentName || '') });
+        const results = res.data || [];
+        return tasks.map((t, i) => ({ ...t, departmentId: results[i]?.departmentId || '' }));
+      } catch { return tasks; }
+    }
+
+    // ── extract & polling ─────────────────────────────────────────────────────
+
+    async function doExtract(doc, reExtract = false) {
+      showExtractModal(doc, null, [], true);
+      try {
+        const endpoint = reExtract
+          ? `/api/v1/documents/${doc.id}/re-extract`
+          : `/api/v1/documents/${doc.id}/extract`;
+        const res = await apiPost(endpoint, {});
+        const data = res.data;
+        if (data?.status === 'no_text') {
+          updateExtractModal(doc, null, [], false, '⚠️ Văn bản chưa có nội dung trích xuất');
+          return;
+        }
+        if (data?.status === 'extracting' || data?.status === 'processing') {
+          updateExtractModal(doc, null, [], true, '⏳ Đang trích xuất, vui lòng chờ...');
+          pollExtract(doc);
+          return;
+        }
+        const tasks = await resolveDeptsBatch(parseExtractionTasks(data));
+        updateExtractModal(doc, data, tasks, false, null);
+      } catch (e) {
+        updateExtractModal(doc, null, [], false, '❌ Trích xuất thất bại: ' + e.message);
+      }
+    }
+
+    function pollExtract(doc, attempts = 0) {
+      if (attempts >= 60) {
+        updateExtractModal(doc, null, [], false, '⚠️ Timeout — chưa hoàn tất sau 5 phút');
+        return;
+      }
+      setTimeout(async () => {
+        try {
+          const res = await apiGet(`/api/v1/documents/${doc.id}`);
+          const d = res.data;
+          if (d?.status === 'extracted' && d?.extractionResult) {
+            const tasks = await resolveDeptsBatch(parseExtractionTasks(d.extractionResult));
+            updateExtractModal(doc, d.extractionResult, tasks, false, null);
+            return;
+          }
+          if (d?.status === 'error' || d?.status === 'pending') {
+            updateExtractModal(doc, null, [], false, '❌ Trích xuất thất bại');
+            return;
+          }
+        } catch {}
+        pollExtract(doc, attempts + 1);
+      }, 5000);
+    }
+
+    // ── extract modal ─────────────────────────────────────────────────────────
+
+    let extractTasks = []; // reactive state bên ngoài DOM
+    let extractDocRef = null;
+
+    function showExtractModal(doc, extractData, tasks, loading, msg) {
+      extractDocRef = doc;
+      extractTasks = tasks;
+
+      const existing = document.getElementById('vbdh-extract-modal');
+      if (existing) existing.remove();
+
+      const sub = document.createElement('div');
+      sub.id = 'vbdh-extract-modal';
+      sub.className = 'vbdh-sub-modal';
+      sub.innerHTML = `
+        <div class="vbdh-sub-overlay"></div>
+        <div class="vbdh-sub-container" style="max-width:780px">
+          <div class="vbdh-sub-header">
+            <h3>🤖 Trích xuất: ${(doc.title || doc.originalFilename || '').substring(0, 60)}</h3>
+            <button class="vbdh-close">&times;</button>
+          </div>
+          <div class="vbdh-modal-body" id="vbdh-extract-body">
+            ${loading ? '<div class="vbdh-loading"><div class="vbdh-spinner"></div><p>Đang trích xuất...</p></div>' : ''}
+            ${msg ? `<p style="color:#f5a623;padding:12px">${msg}</p>` : ''}
+          </div>
+          <div id="vbdh-extract-footer" style="padding:12px 20px;border-top:1px solid #e8e8e8;display:flex;gap:8px;justify-content:flex-end">
+            ${!loading && !msg ? renderExtractFooterBtns(doc) : ''}
+          </div>
+        </div>`;
+
+      sub.querySelector('.vbdh-sub-overlay').onclick = () => sub.remove();
+      sub.querySelector('.vbdh-close').onclick = () => sub.remove();
+      document.getElementById('vbdh-assistant-modal').appendChild(sub);
+
+      if (!loading && tasks.length > 0) renderExtractTasks(sub, tasks, doc);
+      bindExtractFooter(sub, doc);
+    }
+
+    function updateExtractModal(doc, extractData, tasks, loading, msg) {
+      extractTasks = tasks;
+      const sub = document.getElementById('vbdh-extract-modal');
+      if (!sub) { showExtractModal(doc, extractData, tasks, loading, msg); return; }
+
+      const bodyEl = document.getElementById('vbdh-extract-body');
+      const footerEl = document.getElementById('vbdh-extract-footer');
+
+      if (loading) {
+        bodyEl.innerHTML = '<div class="vbdh-loading"><div class="vbdh-spinner"></div><p>Đang trích xuất...</p></div>';
+        footerEl.innerHTML = '';
+        return;
+      }
+      if (msg) {
+        bodyEl.innerHTML = `<p style="color:#f5a623;padding:12px">${msg}</p>`;
+        footerEl.innerHTML = '';
+        return;
+      }
+      bodyEl.innerHTML = '';
+      if (tasks.length > 0) renderExtractTasks(sub, tasks, doc);
+      else bodyEl.innerHTML = '<p style="color:#999;padding:16px;text-align:center">Không trích xuất được nhiệm vụ nào</p>';
+
+      footerEl.innerHTML = renderExtractFooterBtns(doc);
+      bindExtractFooter(sub, doc);
+    }
+
+    function renderExtractFooterBtns(doc) {
+      return `
+        <button id="vbdh-re-extract-btn" class="vbdh-btn">🔄 Trích xuất lại</button>
+        <button id="vbdh-create-tasks-btn" class="vbdh-btn" style="background:#52c41a;color:#fff">✅ Tạo nhiệm vụ đã chọn</button>`;
+    }
+
+    function bindExtractFooter(sub, doc) {
+      const reBtn = sub.querySelector('#vbdh-re-extract-btn');
+      const createBtn = sub.querySelector('#vbdh-create-tasks-btn');
+      if (reBtn) reBtn.onclick = () => doExtract(doc, true);
+      if (createBtn) createBtn.onclick = () => createSelectedTasks(doc, sub);
+    }
+
+    function renderExtractTasks(sub, tasks, doc) {
+      const bodyEl = document.getElementById('vbdh-extract-body');
+      const deptsCache = {};
+
+      const rows = tasks.map((t, i) => `
+        <tr>
+          <td style="padding:6px;text-align:center"><input type="checkbox" class="vbdh-task-chk" data-idx="${i}" ${t.selected ? 'checked' : ''}></td>
+          <td style="padding:6px">
+            <input class="vbdh-task-title" data-idx="${i}" value="${escHtml(t.title)}"
+              style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px"/>
+          </td>
+          <td style="padding:6px">
+            <input class="vbdh-task-desc" data-idx="${i}" value="${escHtml(t.description || '')}"
+              style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px"/>
+          </td>
+          <td style="padding:6px">
+            <input class="vbdh-task-dept" data-idx="${i}" value="${escHtml(t.departmentName || '')}"
+              placeholder="Tên phòng ban" style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:12px"/>
+            <input class="vbdh-task-dept-id" data-idx="${i}" type="hidden" value="${t.departmentId || ''}"/>
+          </td>
+          <td style="padding:6px">
+            <select class="vbdh-task-priority" data-idx="${i}" style="border:1px solid #d9d9d9;border-radius:4px;padding:4px;font-size:12px">
+              <option value="CAO" ${t.priority==='CAO'?'selected':''}>Cao</option>
+              <option value="BINH_THUONG" ${t.priority==='BINH_THUONG'?'selected':''}>Bình thường</option>
+              <option value="THAP" ${t.priority==='THAP'?'selected':''}>Thấp</option>
+            </select>
+          </td>
+          <td style="padding:6px">
+            <input class="vbdh-task-deadline" data-idx="${i}" type="date" value="${t.deadline ? t.deadline.substring(0,10) : ''}"
+              style="border:1px solid #d9d9d9;border-radius:4px;padding:4px;font-size:12px"/>
+          </td>
+        </tr>`).join('');
+
+      bodyEl.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:4px">
+          <thead>
+            <tr style="background:#fafafa">
+              <th style="padding:6px;width:36px"><input type="checkbox" id="vbdh-chk-all" checked title="Chọn tất cả"></th>
+              <th style="padding:6px;text-align:left">Tiêu đề</th>
+              <th style="padding:6px;text-align:left">Mô tả</th>
+              <th style="padding:6px;text-align:left">Phòng ban</th>
+              <th style="padding:6px;text-align:left;white-space:nowrap">Ưu tiên</th>
+              <th style="padding:6px;text-align:left;white-space:nowrap">Hạn xử lý</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+
+      // Chọn tất cả
+      const chkAll = bodyEl.querySelector('#vbdh-chk-all');
+      if (chkAll) chkAll.onchange = e => {
+        bodyEl.querySelectorAll('.vbdh-task-chk').forEach(c => { c.checked = e.target.checked; extractTasks[+c.dataset.idx].selected = e.target.checked; });
+      };
+      bodyEl.querySelectorAll('.vbdh-task-chk').forEach(c => c.onchange = e => { extractTasks[+c.dataset.idx].selected = e.target.checked; });
+      bodyEl.querySelectorAll('.vbdh-task-title').forEach(i => i.oninput = e => { extractTasks[+i.dataset.idx].title = e.target.value; });
+      bodyEl.querySelectorAll('.vbdh-task-desc').forEach(i => i.oninput = e => { extractTasks[+i.dataset.idx].description = e.target.value; });
+      bodyEl.querySelectorAll('.vbdh-task-dept').forEach(i => i.oninput = e => { extractTasks[+i.dataset.idx].departmentName = e.target.value; extractTasks[+i.dataset.idx].departmentId = ''; });
+      bodyEl.querySelectorAll('.vbdh-task-priority').forEach(s => s.onchange = e => { extractTasks[+s.dataset.idx].priority = e.target.value; });
+      bodyEl.querySelectorAll('.vbdh-task-deadline').forEach(i => i.onchange = e => { extractTasks[+i.dataset.idx].deadline = e.target.value; });
+    }
+
+    function escHtml(s) { return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    async function createSelectedTasks(doc, sub) {
+      const selected = extractTasks.filter(t => t.selected);
+      if (!selected.length) { alert('⚠️ Chọn ít nhất 1 nhiệm vụ'); return; }
+
+      // Resolve department names to IDs trước khi tạo
+      const resolved = await resolveDeptsBatch(selected);
+
+      const btn = sub.querySelector('#vbdh-create-tasks-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Đang tạo...'; }
+      try {
+        const payload = resolved.map(t => ({
+          title: t.title,
+          description: t.description || '',
+          departmentId: t.departmentId || null,
+          priority: t.priority || 'BINH_THUONG',
+          deadline: t.deadline || null,
+        }));
+        const res = await apiPost(`/api/v1/documents/${doc.id}/create-tasks`, payload);
+        const created = res.data || [];
+        alert(`✅ Đã tạo ${created.length} nhiệm vụ thành công!`);
+        sub.remove();
+        loadPage(currentPage); // refresh list
+      } catch (e) {
+        alert('❌ Tạo nhiệm vụ thất bại: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Tạo nhiệm vụ đã chọn'; }
+      }
+    }
+
+    // ── show existing tasks ────────────────────────────────────────────────────
+
+    async function showExistingTasks(doc) {
+      const sub = document.createElement('div');
+      sub.id = 'vbdh-doc-tasks-modal';
+      sub.className = 'vbdh-sub-modal';
+      sub.innerHTML = `
+        <div class="vbdh-sub-overlay"></div>
+        <div class="vbdh-sub-container" style="max-width:700px">
+          <div class="vbdh-sub-header">
+            <h3>📋 Nhiệm vụ từ: ${(doc.title || '').substring(0, 50)}</h3>
+            <button class="vbdh-close">&times;</button>
+          </div>
+          <div class="vbdh-modal-body">
+            <div class="vbdh-loading"><div class="vbdh-spinner"></div><p>Đang tải...</p></div>
+          </div>
+        </div>`;
+      sub.querySelector('.vbdh-sub-overlay').onclick = () => sub.remove();
+      sub.querySelector('.vbdh-close').onclick = () => sub.remove();
+      document.getElementById('vbdh-assistant-modal').appendChild(sub);
+
+      try {
+        const res = await apiGet(`/api/v1/documents/${doc.id}/tasks`);
+        const tasks = res.data || [];
+        const mbody = sub.querySelector('.vbdh-modal-body');
+        if (!tasks.length) { mbody.innerHTML = '<p style="color:#999;text-align:center;padding:24px">Chưa có nhiệm vụ nào</p>'; return; }
+
+        const taskStatusLabel = { assigned:'Chờ PC', dept_assigned:'Đã PC NV', in_progress:'Đang TH', pending_review:'Chờ duyệt', dept_rejected:'Bị trả lại', completed:'Hoàn thành', cancelled:'Đã hủy' };
+        const taskStatusColor = { assigned:'#faad14', dept_assigned:'#1890ff', in_progress:'#fa8c16', pending_review:'#722ed1', dept_rejected:'#ff4d4f', completed:'#52c41a', cancelled:'#999' };
+
+        const rows = tasks.map(t => {
+          const sc = taskStatusColor[t.status] || '#999';
+          const sl = taskStatusLabel[t.status] || t.status;
+          return `<tr>
+            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(t.title)}">${escHtml(t.title)}</td>
+            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0"><span style="background:${sc}22;color:${sc};padding:2px 6px;border-radius:4px;font-size:11px">${sl}</span></td>
+            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0;font-size:12px">${t.progress ?? 0}%</td>
+            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0;font-size:12px">${fmtDate(t.deadline)}</td>
+          </tr>`;
+        }).join('');
+
+        mbody.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:#fafafa">
+            <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Tiêu đề</th>
+            <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Trạng thái</th>
+            <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Tiến độ</th>
+            <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Hạn</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+      } catch (e) {
+        const mbody = sub.querySelector('.vbdh-modal-body');
+        if (mbody) mbody.innerHTML = `<p style="color:red;padding:16px">❌ ${e.message}</p>`;
+      }
+    }
+
+    // ── detail modal ──────────────────────────────────────────────────────────
+
+    function showDocDetail(d) {
+      const existing = document.getElementById('vbdh-doc-detail-modal');
+      if (existing) existing.remove();
+
+      const apiBase = getApiBase();
+      const status = docStatusLabel[d.status] || d.status;
+      const color = docStatusColor[d.status] || '#999';
+      const hasExtraction = !!d.extractionResult;
+
+      const sub = document.createElement('div');
+      sub.id = 'vbdh-doc-detail-modal';
+      sub.className = 'vbdh-sub-modal';
+      sub.innerHTML = `
+        <div class="vbdh-sub-overlay"></div>
+        <div class="vbdh-sub-container" style="max-width:620px">
+          <div class="vbdh-sub-header">
+            <h3>📄 Chi tiết văn bản</h3>
+            <button class="vbdh-close">&times;</button>
+          </div>
+          <div class="vbdh-modal-body">
+            <div class="vbdh-detail-grid">
+              <div class="vbdh-detail-row"><b>Tiêu đề:</b> ${d.title || d.originalFilename || '-'}</div>
+              <div class="vbdh-detail-row"><b>Số hiệu:</b> ${d.documentNumber || '-'}</div>
+              <div class="vbdh-detail-row"><b>Ngày văn bản:</b> ${fmtDate(d.documentDate)}</div>
+              <div class="vbdh-detail-row"><b>Ngày nhận:</b> ${fmtDate(d.receivedDate)}</div>
+              <div class="vbdh-detail-row"><b>Loại file:</b> ${d.fileType || '-'} &nbsp; <b>Kích thước:</b> ${d.fileSizeKb ? d.fileSizeKb + ' KB' : '-'}</div>
+              <div class="vbdh-detail-row"><b>Trạng thái:</b> <span style="background:${color}22;color:${color};padding:2px 8px;border-radius:4px;font-size:12px">${status}</span></div>
+              <div class="vbdh-detail-row"><b>Nguồn:</b> ${d.source || '-'}</div>
+              <div class="vbdh-detail-row"><b>Ngày tạo:</b> ${d.createdAt ? new Date(d.createdAt).toLocaleString('vi-VN') : '-'}</div>
+              ${d.description ? `<div class="vbdh-detail-row"><b>Mô tả:</b> ${d.description}</div>` : ''}
+            </div>
+            <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+              <a href="${apiBase}/api/v1/documents/${d.id}/download" target="_blank"
+                 class="vbdh-btn" style="background:#1a73e8;color:#fff;text-decoration:none">↓ Tải file</a>
+              <button id="vbdh-detail-extract-btn" class="vbdh-btn" style="background:#722ed1;color:#fff">
+                🤖 ${hasExtraction ? 'Xem trích xuất' : 'Trích xuất'}
+              </button>
+              <button id="vbdh-detail-tasks-btn" class="vbdh-btn">📋 Xem nhiệm vụ</button>
+            </div>
+          </div>
+        </div>`;
+
+      sub.querySelector('.vbdh-sub-overlay').onclick = () => sub.remove();
+      sub.querySelector('.vbdh-close').onclick = () => sub.remove();
+      sub.querySelector('#vbdh-detail-extract-btn').onclick = () => { sub.remove(); doExtract(d); };
+      sub.querySelector('#vbdh-detail-tasks-btn').onclick = () => { sub.remove(); showExistingTasks(d); };
+      document.getElementById('vbdh-assistant-modal').appendChild(sub);
+    }
+
+    // ── list render ───────────────────────────────────────────────────────────
+
+    function getDocActions(d) {
+      const isProcessing = d.status === 'processing' || d.status === 'extracting';
+      const hasExtraction = !!d.extractionResult;
+      const hasTasksFlag = !!d._taskCount;
+
+      let extractLabel = '🤖 Trích xuất';
+      if (isProcessing) extractLabel = '⏳ Đang xử lý';
+      else if (hasTasksFlag) extractLabel = '📋 Xem NV';
+      else if (hasExtraction) extractLabel = '📄 Xem trích xuất';
+
+      return `
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          <button class="vbdh-btn vbdh-btn-sm vbdh-extract-btn" data-id="${d.id}"
+            style="background:#722ed1;color:#fff" ${isProcessing ? 'disabled' : ''}>${extractLabel}</button>
+          <button class="vbdh-btn vbdh-btn-sm vbdh-detail-btn" data-id="${d.id}">Chi tiết</button>
+        </div>`;
+    }
+
+    function renderDocs(pageData, taskCounts) {
       const list = document.getElementById('vbdh-doc-list');
       const pagination = document.getElementById('vbdh-doc-pagination');
       if (!list) return;
@@ -2164,47 +2545,52 @@
         return;
       }
 
-      const rows = docs.map(d => {
-        const status = docStatusLabel[d.status] || d.status;
+      // Gán task count vào doc object để dùng trong getDocActions
+      const docsWithCount = docs.map(d => ({ ...d, _taskCount: taskCounts?.[d.id] || 0 }));
+
+      const rows = docsWithCount.map(d => {
         const color = docStatusColor[d.status] || '#999';
-        const source = d.source === 'extension' ? 'Extension' : d.source === 'upload' ? 'Upload' : (d.source || '-');
-        return `
-          <tr data-id="${d.id}" style="cursor:pointer" class="vbdh-doc-row">
-            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.title || ''}"><b>${d.title || d.originalFilename || '-'}</b></td>
-            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0;white-space:nowrap;font-size:12px">${fmtDate(d.receivedDate || d.createdAt)}</td>
-            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0">
-              <span style="background:${color}22;color:${color};padding:2px 6px;border-radius:4px;font-size:11px;white-space:nowrap">${status}</span>
-            </td>
-            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#666">${source}</td>
-          </tr>`;
+        let statusHtml;
+        if (d._taskCount) statusHtml = `<span style="background:#1890ff22;color:#1890ff;padding:2px 6px;border-radius:4px;font-size:11px">📋 ${d._taskCount} nhiệm vụ</span>`;
+        else if (d.extractionResult) statusHtml = `<span style="background:#52c41a22;color:#52c41a;padding:2px 6px;border-radius:4px;font-size:11px">✅ Đã trích xuất</span>`;
+        else statusHtml = `<span style="background:${color}22;color:${color};padding:2px 6px;border-radius:4px;font-size:11px">${docStatusLabel[d.status] || d.status}</span>`;
+
+        return `<tr data-id="${d.id}">
+          <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(d.title || '')}">${escHtml(d.title || d.originalFilename || '-')}</td>
+          <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0;font-size:12px;white-space:nowrap">${fmtDate(d.receivedDate || d.createdAt)}</td>
+          <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0">${statusHtml}</td>
+          <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0">${getDocActions(d)}</td>
+        </tr>`;
       }).join('');
 
       list.innerHTML = `
         <table style="width:100%;border-collapse:collapse;font-size:13px">
-          <thead>
-            <tr style="background:#fafafa">
-              <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Tiêu đề</th>
-              <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8;white-space:nowrap">Ngày nhận</th>
-              <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Trạng thái</th>
-              <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Nguồn</th>
-            </tr>
-          </thead>
+          <thead><tr style="background:#fafafa">
+            <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Tiêu đề</th>
+            <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8;white-space:nowrap">Ngày nhận</th>
+            <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Trạng thái</th>
+            <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Thao tác</th>
+          </tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
 
-      // Row click → detail
-      list.querySelectorAll('.vbdh-doc-row').forEach(row => {
-        row.onmouseenter = () => row.style.background = '#f5f5f5';
-        row.onmouseleave = () => row.style.background = '';
-        row.onclick = async () => {
-          const docId = row.dataset.id;
+      // Bind buttons (after render)
+      list.querySelectorAll('.vbdh-extract-btn').forEach(btn => {
+        btn.onclick = async () => {
+          const docId = btn.dataset.id;
+          const doc = docsWithCount.find(d => d.id === docId);
+          if (!doc) return;
+          if (doc._taskCount) { showExistingTasks(doc); return; }
+          doExtract(doc, false);
+        };
+      });
+      list.querySelectorAll('.vbdh-detail-btn').forEach(btn => {
+        btn.onclick = async () => {
+          const docId = btn.dataset.id;
           try {
             const res = await apiGet(`/api/v1/documents/${docId}`);
-            const d = res.data;
-            showDocDetail(d);
-          } catch (e) {
-            alert('❌ Không lấy được chi tiết: ' + e.message);
-          }
+            showDocDetail(res.data);
+          } catch (e) { alert('❌ ' + e.message); }
         };
       });
 
@@ -2213,89 +2599,43 @@
       const totalPages = pageData.totalPages || 1;
       const cur = pageData.number || 0;
       if (totalPages <= 1) { pagination.innerHTML = `<span style="font-size:12px;color:#999">Tổng: ${total} văn bản</span>`; return; }
-
       let pagBtns = `<span style="font-size:12px;color:#999;margin-right:6px">${total} văn bản</span>`;
       pagBtns += `<button class="vbdh-btn vbdh-btn-sm" ${cur === 0 ? 'disabled' : ''} data-pg="${cur - 1}">‹</button>`;
       pagBtns += `<span style="font-size:12px;padding:0 6px">${cur + 1} / ${totalPages}</span>`;
       pagBtns += `<button class="vbdh-btn vbdh-btn-sm" ${cur >= totalPages - 1 ? 'disabled' : ''} data-pg="${cur + 1}">›</button>`;
       pagination.innerHTML = pagBtns;
-      pagination.querySelectorAll('[data-pg]').forEach(btn => {
-        btn.onclick = () => loadPage(parseInt(btn.dataset.pg));
-      });
+      pagination.querySelectorAll('[data-pg]').forEach(b => b.onclick = () => loadPage(+b.dataset.pg));
     }
 
-    function showDocDetail(d) {
-      const existing = document.getElementById('vbdh-doc-detail-modal');
-      if (existing) existing.remove();
-
-      const apiBase = getApiBase();
-      const downloadUrl = `${apiBase}/api/v1/documents/${d.id}/download`;
-      const status = docStatusLabel[d.status] || d.status;
-      const color = docStatusColor[d.status] || '#999';
-
-      const sub = document.createElement('div');
-      sub.id = 'vbdh-doc-detail-modal';
-      sub.className = 'vbdh-sub-modal';
-      sub.innerHTML = `
-        <div class="vbdh-sub-overlay"></div>
-        <div class="vbdh-sub-container" style="max-width:600px">
-          <div class="vbdh-sub-header">
-            <h3>📄 Chi tiết văn bản</h3>
-            <button class="vbdh-close">&times;</button>
-          </div>
-          <div class="vbdh-modal-body">
-            <div class="vbdh-detail-grid">
-              <div class="vbdh-detail-row"><b>Tiêu đề:</b> ${d.title || d.originalFilename || '-'}</div>
-              <div class="vbdh-detail-row"><b>Số hiệu:</b> ${d.documentNumber || '-'}</div>
-              <div class="vbdh-detail-row"><b>Ngày văn bản:</b> ${d.documentDate ? new Date(d.documentDate).toLocaleDateString('vi-VN') : '-'}</div>
-              <div class="vbdh-detail-row"><b>Ngày nhận:</b> ${d.receivedDate ? new Date(d.receivedDate).toLocaleDateString('vi-VN') : '-'}</div>
-              <div class="vbdh-detail-row"><b>Loại file:</b> ${d.fileType || '-'} &nbsp; <b>Kích thước:</b> ${d.fileSizeKb ? d.fileSizeKb + ' KB' : '-'}</div>
-              <div class="vbdh-detail-row"><b>Trạng thái:</b> <span style="background:${color}22;color:${color};padding:2px 8px;border-radius:4px;font-size:12px">${status}</span></div>
-              <div class="vbdh-detail-row"><b>Nguồn:</b> ${d.source || '-'}</div>
-              <div class="vbdh-detail-row"><b>Ngày tạo:</b> ${d.createdAt ? new Date(d.createdAt).toLocaleString('vi-VN') : '-'}</div>
-              ${d.description ? `<div class="vbdh-detail-row"><b>Mô tả:</b> ${d.description}</div>` : ''}
-            </div>
-            <div style="margin-top:16px;display:flex;gap:8px">
-              <a href="${downloadUrl}" target="_blank" class="vbdh-btn" style="background:#1a73e8;color:#fff;text-decoration:none">↓ Tải file</a>
-            </div>
-          </div>
-        </div>`;
-
-      sub.querySelector('.vbdh-sub-overlay').onclick = () => sub.remove();
-      sub.querySelector('.vbdh-close').onclick = () => sub.remove();
-      document.getElementById('vbdh-assistant-modal').appendChild(sub);
-    }
+    // ── fetch & load ──────────────────────────────────────────────────────────
 
     async function loadPage(page) {
       currentPage = page;
       const list = document.getElementById('vbdh-doc-list');
       if (list) list.innerHTML = '<div class="vbdh-loading"><div class="vbdh-spinner"></div><p>Đang tải...</p></div>';
       try {
-        const pageData = await fetchDocs(page, currentKeyword);
-        renderDocs(pageData);
+        const params = new URLSearchParams({ page, size: pageSize });
+        if (currentKeyword) params.append('keyword', currentKeyword);
+        const [docsRes, countsRes] = await Promise.all([
+          apiGet(`/api/v1/documents?${params}`),
+          apiGet('/api/v1/documents/task-counts').catch(() => ({ data: {} })),
+        ]);
+        renderDocs(docsRes.data, countsRes.data);
       } catch (e) {
         if (list) list.innerHTML = `<p style="color:red;padding:16px">❌ Lỗi tải văn bản: ${e.message}</p>`;
       }
     }
 
-    // Bind search
+    // ── search ────────────────────────────────────────────────────────────────
+
     const searchInput = document.getElementById('vbdh-doc-search');
     const searchBtn = document.getElementById('vbdh-doc-search-btn');
     const refreshBtn = document.getElementById('vbdh-doc-refresh-btn');
-
-    const doSearch = () => {
-      currentKeyword = searchInput ? searchInput.value.trim() : '';
-      loadPage(0);
-    };
+    const doSearch = () => { currentKeyword = searchInput ? searchInput.value.trim() : ''; loadPage(0); };
     if (searchBtn) searchBtn.onclick = doSearch;
-    if (refreshBtn) refreshBtn.onclick = () => {
-      if (searchInput) searchInput.value = '';
-      currentKeyword = '';
-      loadPage(0);
-    };
+    if (refreshBtn) refreshBtn.onclick = () => { if (searchInput) searchInput.value = ''; currentKeyword = ''; loadPage(0); };
     if (searchInput) searchInput.onkeydown = e => { if (e.key === 'Enter') doSearch(); };
 
-    // Initial load
     loadPage(0);
   }
 
