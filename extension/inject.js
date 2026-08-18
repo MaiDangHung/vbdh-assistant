@@ -126,10 +126,14 @@
 
     let tabsHtml = '';
     if (isAdminOrLeader) {
+      const docTab = (role === 'CHIEF' || role === 'ADMIN')
+        ? `<button class="vbdh-tab" data-tab="documents" id="vbdh-tab-documents">📂 Văn bản</button>`
+        : '';
       tabsHtml = `
         <div class="vbdh-tabs">
           <button class="vbdh-tab active" data-tab="extract" id="vbdh-tab-extract">📄 Trích xuất</button>
           <button class="vbdh-tab" data-tab="tasks" id="vbdh-tab-tasks">📋 Nhiệm vụ</button>
+          ${docTab}
         </div>`;
     }
 
@@ -208,6 +212,8 @@
       }
     } else if (tabName === 'tasks') {
       loadTasksPanel(body);
+    } else if (tabName === 'documents') {
+      loadDocumentsPanel(body);
     }
   }
 
@@ -2102,6 +2108,195 @@
     const d = new Date(v);
     if (isNaN(d.getTime())) return v;
     return d.toLocaleDateString('vi-VN');
+  }
+
+  // ===================================================================
+  // DOCUMENTS PANEL (chỉ CHIEF/ADMIN)
+  // ===================================================================
+
+  async function loadDocumentsPanel(body) {
+    body.innerHTML = `
+      <div style="padding:16px">
+        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+          <input id="vbdh-doc-search" type="text" placeholder="Tìm tiêu đề, số hiệu..." style="flex:1;padding:6px 10px;border:1px solid #d9d9d9;border-radius:6px;font-size:13px"/>
+          <button id="vbdh-doc-search-btn" class="vbdh-btn" style="background:#1a73e8;color:#fff">Tìm</button>
+          <button id="vbdh-doc-refresh-btn" class="vbdh-btn">&#x21ba; Làm mới</button>
+        </div>
+        <div id="vbdh-doc-list"><div class="vbdh-loading"><div class="vbdh-spinner"></div><p>Đang tải...</p></div></div>
+        <div id="vbdh-doc-pagination" style="display:flex;gap:6px;justify-content:center;margin-top:12px;align-items:center"></div>
+      </div>`;
+
+    let currentPage = 0;
+    let currentKeyword = '';
+    const pageSize = 10;
+
+    async function fetchDocs(page, keyword) {
+      const params = new URLSearchParams({ page, size: pageSize });
+      if (keyword) params.append('keyword', keyword);
+      const data = await apiGet(`/api/v1/documents?${params}`);
+      return data.data; // Page object
+    }
+
+    function fmtDate(v) {
+      if (!v) return '-';
+      const d = new Date(v);
+      return isNaN(d) ? v : d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    }
+
+    const docStatusLabel = {
+      pending: 'Chờ xử lý', processing: 'Đang xử lý', extracting: 'Đang trích xuất',
+      extracted: 'Đã trích xuất', classified: 'Đã phân loại', completed: 'Hoàn thành', error: 'Thất bại',
+    };
+    const docStatusColor = {
+      pending: '#999', processing: '#1890ff', extracting: '#1890ff',
+      extracted: '#52c41a', classified: '#52c41a', completed: '#52c41a', error: '#ff4d4f',
+    };
+
+    function renderDocs(pageData) {
+      const list = document.getElementById('vbdh-doc-list');
+      const pagination = document.getElementById('vbdh-doc-pagination');
+      if (!list) return;
+
+      const docs = pageData?.content || [];
+      if (!docs.length) {
+        list.innerHTML = '<p style="color:#999;text-align:center;padding:24px">Không có văn bản nào</p>';
+        pagination.innerHTML = '';
+        return;
+      }
+
+      const rows = docs.map(d => {
+        const status = docStatusLabel[d.status] || d.status;
+        const color = docStatusColor[d.status] || '#999';
+        const source = d.source === 'extension' ? 'Extension' : d.source === 'upload' ? 'Upload' : (d.source || '-');
+        return `
+          <tr data-id="${d.id}" style="cursor:pointer" class="vbdh-doc-row">
+            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.title || ''}"><b>${d.title || d.originalFilename || '-'}</b></td>
+            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0;white-space:nowrap;font-size:12px">${fmtDate(d.receivedDate || d.createdAt)}</td>
+            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0">
+              <span style="background:${color}22;color:${color};padding:2px 6px;border-radius:4px;font-size:11px;white-space:nowrap">${status}</span>
+            </td>
+            <td style="padding:8px 6px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#666">${source}</td>
+          </tr>`;
+      }).join('');
+
+      list.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#fafafa">
+              <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Tiêu đề</th>
+              <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8;white-space:nowrap">Ngày nhận</th>
+              <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Trạng thái</th>
+              <th style="padding:8px 6px;text-align:left;border-bottom:2px solid #e8e8e8">Nguồn</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+
+      // Row click → detail
+      list.querySelectorAll('.vbdh-doc-row').forEach(row => {
+        row.onmouseenter = () => row.style.background = '#f5f5f5';
+        row.onmouseleave = () => row.style.background = '';
+        row.onclick = async () => {
+          const docId = row.dataset.id;
+          try {
+            const res = await apiGet(`/api/v1/documents/${docId}`);
+            const d = res.data;
+            showDocDetail(d);
+          } catch (e) {
+            alert('❌ Không lấy được chi tiết: ' + e.message);
+          }
+        };
+      });
+
+      // Pagination
+      const total = pageData.totalElements || 0;
+      const totalPages = pageData.totalPages || 1;
+      const cur = pageData.number || 0;
+      if (totalPages <= 1) { pagination.innerHTML = `<span style="font-size:12px;color:#999">Tổng: ${total} văn bản</span>`; return; }
+
+      let pagBtns = `<span style="font-size:12px;color:#999;margin-right:6px">${total} văn bản</span>`;
+      pagBtns += `<button class="vbdh-btn vbdh-btn-sm" ${cur === 0 ? 'disabled' : ''} data-pg="${cur - 1}">‹</button>`;
+      pagBtns += `<span style="font-size:12px;padding:0 6px">${cur + 1} / ${totalPages}</span>`;
+      pagBtns += `<button class="vbdh-btn vbdh-btn-sm" ${cur >= totalPages - 1 ? 'disabled' : ''} data-pg="${cur + 1}">›</button>`;
+      pagination.innerHTML = pagBtns;
+      pagination.querySelectorAll('[data-pg]').forEach(btn => {
+        btn.onclick = () => loadPage(parseInt(btn.dataset.pg));
+      });
+    }
+
+    function showDocDetail(d) {
+      const existing = document.getElementById('vbdh-doc-detail-modal');
+      if (existing) existing.remove();
+
+      const apiBase = getApiBase();
+      const downloadUrl = `${apiBase}/api/v1/documents/${d.id}/download`;
+      const status = docStatusLabel[d.status] || d.status;
+      const color = docStatusColor[d.status] || '#999';
+
+      const sub = document.createElement('div');
+      sub.id = 'vbdh-doc-detail-modal';
+      sub.className = 'vbdh-sub-modal';
+      sub.innerHTML = `
+        <div class="vbdh-sub-overlay"></div>
+        <div class="vbdh-sub-container" style="max-width:600px">
+          <div class="vbdh-sub-header">
+            <h3>📄 Chi tiết văn bản</h3>
+            <button class="vbdh-close">&times;</button>
+          </div>
+          <div class="vbdh-modal-body">
+            <div class="vbdh-detail-grid">
+              <div class="vbdh-detail-row"><b>Tiêu đề:</b> ${d.title || d.originalFilename || '-'}</div>
+              <div class="vbdh-detail-row"><b>Số hiệu:</b> ${d.documentNumber || '-'}</div>
+              <div class="vbdh-detail-row"><b>Ngày văn bản:</b> ${d.documentDate ? new Date(d.documentDate).toLocaleDateString('vi-VN') : '-'}</div>
+              <div class="vbdh-detail-row"><b>Ngày nhận:</b> ${d.receivedDate ? new Date(d.receivedDate).toLocaleDateString('vi-VN') : '-'}</div>
+              <div class="vbdh-detail-row"><b>Loại file:</b> ${d.fileType || '-'} &nbsp; <b>Kích thước:</b> ${d.fileSizeKb ? d.fileSizeKb + ' KB' : '-'}</div>
+              <div class="vbdh-detail-row"><b>Trạng thái:</b> <span style="background:${color}22;color:${color};padding:2px 8px;border-radius:4px;font-size:12px">${status}</span></div>
+              <div class="vbdh-detail-row"><b>Nguồn:</b> ${d.source || '-'}</div>
+              <div class="vbdh-detail-row"><b>Ngày tạo:</b> ${d.createdAt ? new Date(d.createdAt).toLocaleString('vi-VN') : '-'}</div>
+              ${d.description ? `<div class="vbdh-detail-row"><b>Mô tả:</b> ${d.description}</div>` : ''}
+            </div>
+            <div style="margin-top:16px;display:flex;gap:8px">
+              <a href="${downloadUrl}" target="_blank" class="vbdh-btn" style="background:#1a73e8;color:#fff;text-decoration:none">↓ Tải file</a>
+            </div>
+          </div>
+        </div>`;
+
+      sub.querySelector('.vbdh-sub-overlay').onclick = () => sub.remove();
+      sub.querySelector('.vbdh-close').onclick = () => sub.remove();
+      document.getElementById('vbdh-assistant-modal').appendChild(sub);
+    }
+
+    async function loadPage(page) {
+      currentPage = page;
+      const list = document.getElementById('vbdh-doc-list');
+      if (list) list.innerHTML = '<div class="vbdh-loading"><div class="vbdh-spinner"></div><p>Đang tải...</p></div>';
+      try {
+        const pageData = await fetchDocs(page, currentKeyword);
+        renderDocs(pageData);
+      } catch (e) {
+        if (list) list.innerHTML = `<p style="color:red;padding:16px">❌ Lỗi tải văn bản: ${e.message}</p>`;
+      }
+    }
+
+    // Bind search
+    const searchInput = document.getElementById('vbdh-doc-search');
+    const searchBtn = document.getElementById('vbdh-doc-search-btn');
+    const refreshBtn = document.getElementById('vbdh-doc-refresh-btn');
+
+    const doSearch = () => {
+      currentKeyword = searchInput ? searchInput.value.trim() : '';
+      loadPage(0);
+    };
+    if (searchBtn) searchBtn.onclick = doSearch;
+    if (refreshBtn) refreshBtn.onclick = () => {
+      if (searchInput) searchInput.value = '';
+      currentKeyword = '';
+      loadPage(0);
+    };
+    if (searchInput) searchInput.onkeydown = e => { if (e.key === 'Enter') doSearch(); };
+
+    // Initial load
+    loadPage(0);
   }
 
   // ===== CSS =====
