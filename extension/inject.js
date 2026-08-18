@@ -333,7 +333,7 @@
     if (isAdminOrLeader) {
       return [
         { key: '', label: '📋 Tất cả' },
-        { key: 'assigned', label: '📥 Chờ phân công' },
+        { key: 'dept_assigned', label: '👥 Đã giao NV' },
         { key: 'in_progress', label: '🔄 Đang thực hiện' },
         { key: 'pending_review', label: '⏳ Chờ duyệt' },
         { key: 'dept_rejected', label: '⚠️ Bị trả lại' },
@@ -343,8 +343,8 @@
     if (isDeptHead) {
       return [
         { key: '', label: '📋 Tất cả' },
-        { key: 'assigned', label: '📥 Chờ phân công' },
-        { key: 'dept_assigned', label: '👥 Đã phân công' },
+        { key: 'dept_assigned', label: '👥 Đã giao NV' },
+        { key: 'dept_assigned', label: '👥 Đã giao NV' },
         { key: 'pending_review', label: '⏳ Chờ CVP duyệt' },
         { key: 'dept_rejected', label: '⚠️ Bị trả lại' },
         { key: 'completed', label: '✅ Hoàn thành' },
@@ -423,7 +423,7 @@
 
       // Status
       const sc = { assigned: '#1890ff', dept_assigned: '#13c2c2', in_progress: '#fa8c16', pending_review: '#faad14', dept_rejected: '#ff4d4f', completed: '#52c41a', cancelled: '#999' };
-      const sl = { assigned: 'Chờ phân công', dept_assigned: 'Đã phân công', in_progress: 'Đang làm', pending_review: 'Chờ duyệt', dept_rejected: 'Bị trả lại', completed: 'Hoàn thành', cancelled: 'Đã hủy' };
+      const sl = { assigned: 'Chờ xử lý', dept_assigned: 'Đã giao NV', in_progress: 'Đang làm', pending_review: 'Chờ duyệt', dept_rejected: 'Bị trả lại', completed: 'Hoàn thành', cancelled: 'Đã hủy' };
       const sv = t.status || '';
       html += `<td><span class="vbdh-status-tag" style="background:${sc[sv] || '#999'}20;color:${sc[sv] || '#999'}">${sl[sv] || sv}</span></td>`;
 
