@@ -2368,33 +2368,33 @@
       // Cột theo đúng thứ tự web tbkl: ✅ | Tiêu đề | Mô tả | Ưu tiên | Hạn xử lý | Phòng ban (select) | ✕
       const rows = tasks.map((t, i) => `
         <tr>
-          <td style="padding:6px;text-align:center"><input type="checkbox" class="vbdh-task-chk" data-idx="${i}" ${t.selected ? 'checked' : ''}></td>
-          <td style="padding:6px;min-width:180px">
+          <td style="padding:6px;text-align:center;vertical-align:top"><input type="checkbox" class="vbdh-task-chk" data-idx="${i}" ${t.selected ? 'checked' : ''}></td>
+          <td style="padding:6px;vertical-align:top;width:30%">
             <textarea class="vbdh-task-title" data-idx="${i}" rows="3"
-              style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px;resize:vertical">${escHtml(t.title)}</textarea>
+              style="width:100%;max-width:100%;box-sizing:border-box;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px;resize:vertical">${escHtml(t.title)}</textarea>
           </td>
-          <td style="padding:6px;min-width:220px">
+          <td style="padding:6px;vertical-align:top;width:30%">
             <textarea class="vbdh-task-desc" data-idx="${i}" rows="3"
-              style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px;resize:vertical">${escHtml(t.description || '')}</textarea>
+              style="width:100%;max-width:100%;box-sizing:border-box;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px;resize:vertical">${escHtml(t.description || '')}</textarea>
           </td>
-          <td style="padding:6px">
-            <select class="vbdh-task-priority" data-idx="${i}" style="border:1px solid #d9d9d9;border-radius:4px;padding:4px;font-size:12px">
+          <td style="padding:6px;vertical-align:top;white-space:nowrap">
+            <select class="vbdh-task-priority" data-idx="${i}" style="box-sizing:border-box;border:1px solid #d9d9d9;border-radius:4px;padding:4px;font-size:12px;max-width:100px">
               <option value="CAO" ${t.priority==='CAO'?'selected':''}>Cao</option>
               <option value="BINH_THUONG" ${t.priority==='BINH_THUONG'?'selected':''}>Bình thường</option>
               <option value="THAP" ${t.priority==='THAP'?'selected':''}>Thấp</option>
             </select>
           </td>
-          <td style="padding:6px">
+          <td style="padding:6px;vertical-align:top;white-space:nowrap">
             <input class="vbdh-task-deadline" data-idx="${i}" type="date" value="${t.deadline ? t.deadline.substring(0,10) : ''}"
-              style="border:1px solid #d9d9d9;border-radius:4px;padding:4px;font-size:12px"/>
+              style="box-sizing:border-box;border:1px solid #d9d9d9;border-radius:4px;padding:4px;font-size:12px"/>
           </td>
-          <td style="padding:6px;min-width:160px">
-            <select class="vbdh-task-dept" data-idx="${i}" style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px;font-size:12px">
+          <td style="padding:6px;vertical-align:top;width:22%">
+            <select class="vbdh-task-dept" data-idx="${i}" style="width:100%;max-width:100%;box-sizing:border-box;border:1px solid #d9d9d9;border-radius:4px;padding:4px;font-size:12px">
               <option value="">-- Chọn phòng ban --</option>
               ${deptOptions(t.departmentId)}
             </select>
           </td>
-          <td style="padding:6px;text-align:center">
+          <td style="padding:6px;text-align:center;vertical-align:top">
             <button class="vbdh-task-del" data-idx="${i}" title="Xóa dòng"
               style="border:none;background:none;color:#ff4d4f;cursor:pointer;font-size:14px">&times;</button>
           </td>
@@ -2403,20 +2403,31 @@
       bodyEl.innerHTML = `
         <p style="font-size:12px;color:#1890ff;background:#e6f7ff;padding:8px 12px;border-radius:4px;margin-bottom:8px">
           ℹ️ Chọn nhiệm vụ, điền thông tin, rồi bấm "Tạo nhiệm vụ"</p>
-        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:4px">
+        <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:4px;table-layout:fixed">
+          <colgroup>
+            <col style="width:36px">
+            <col style="width:30%">
+            <col style="width:30%">
+            <col style="width:110px">
+            <col style="width:140px">
+            <col style="width:22%">
+            <col style="width:32px">
+          </colgroup>
           <thead>
             <tr style="background:#fafafa">
-              <th style="padding:6px;width:36px"><input type="checkbox" id="vbdh-chk-all" checked title="Chọn tất cả"></th>
+              <th style="padding:6px"><input type="checkbox" id="vbdh-chk-all" checked title="Chọn tất cả"></th>
               <th style="padding:6px;text-align:left">Tiêu đề</th>
               <th style="padding:6px;text-align:left">Mô tả</th>
               <th style="padding:6px;text-align:left;white-space:nowrap">Ưu tiên</th>
               <th style="padding:6px;text-align:left;white-space:nowrap">Hạn xử lý</th>
               <th style="padding:6px;text-align:left">Phòng ban</th>
-              <th style="padding:6px;width:32px"></th>
+              <th style="padding:6px"></th>
             </tr>
           </thead>
           <tbody id="vbdh-extract-tbody">${rows}</tbody>
-        </table>`;
+        </table>
+        </div>`;
 
       // Chọn tất cả
       const chkAll = bodyEl.querySelector('#vbdh-chk-all');
