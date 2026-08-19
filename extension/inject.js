@@ -2577,11 +2577,7 @@
       sub.querySelector('#vbdh-detail-delete-btn').onclick = async () => {
         if (!confirm(`Xóa văn bản "${(d.title || d.originalFilename || '').substring(0, 60)}"?`)) return;
         try {
-          const res = await fetchWithRefresh(`${getApiUrl()}/documents/${d.id}`, { method: 'DELETE', headers: getAuthHeaders() });
-          if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            throw new Error(j.message || j.error || 'HTTP ' + res.status);
-          }
+          await apiDelete(`/api/v1/documents/${d.id}`);
           sub.remove();
           loadPage(currentPage);
         } catch (e) { alert('❌ Xóa thất bại: ' + e.message); }
@@ -2688,11 +2684,7 @@
           if (!doc) return;
           if (!confirm(`Xóa văn bản "${(doc.title || doc.originalFilename || '').substring(0, 60)}"?`)) return;
           try {
-            const res = await fetchWithRefresh(`${getApiUrl()}/documents/${docId}`, { method: 'DELETE', headers: getAuthHeaders() });
-            if (!res.ok) {
-              const j = await res.json().catch(() => ({}));
-              throw new Error(j.message || j.error || 'HTTP ' + res.status);
-            }
+            await apiDelete(`/api/v1/documents/${docId}`);
             loadPage(currentPage);
           } catch (e) { alert('❌ Xóa thất bại: ' + e.message); }
         };
