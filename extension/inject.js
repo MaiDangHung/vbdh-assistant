@@ -2563,7 +2563,7 @@
               <button id="vbdh-detail-extract-btn" class="vbdh-btn" style="background:#722ed1;color:#fff">
                 🤖 ${hasExtraction ? 'Xem trích xuất' : 'Trích xuất'}
               </button>
-              <button id="vbdh-detail-tasks-btn" class="vbdh-btn">📋 Xem nhiệm vụ</button>
+              <button id="vbdh-detail-tasks-btn" class="vbdh-btn" style="display:none">📋 Xem nhiệm vụ</button>
             </div>
           </div>
         </div>`;
@@ -2573,6 +2573,23 @@
       sub.querySelector('#vbdh-detail-dl-btn').onclick = () => downloadDocFile(d.id, d.title || d.originalFilename);
       sub.querySelector('#vbdh-detail-extract-btn').onclick = () => { sub.remove(); doExtract(d); };
       sub.querySelector('#vbdh-detail-tasks-btn').onclick = () => { sub.remove(); showExistingTasks(d); };
+
+      // Đã tạo NV → ẩn nút trích xuất, chỉ cho xem nhiệm vụ đã tạo
+      (async () => {
+        try {
+          let count = d._taskCount;
+          if (count === undefined) {
+            const res = await apiGet('/api/v1/documents/task-counts');
+            count = (res.data || {})[d.id] || 0;
+          }
+          if (count) {
+            const exBtn = sub.querySelector('#vbdh-detail-extract-btn');
+            const tkBtn = sub.querySelector('#vbdh-detail-tasks-btn');
+            if (exBtn) exBtn.style.display = 'none';
+            if (tkBtn) tkBtn.style.display = '';
+          }
+        } catch { /* giữ mặc định */ }
+      })();
       document.getElementById('vbdh-assistant-modal').appendChild(sub);
     }
 
