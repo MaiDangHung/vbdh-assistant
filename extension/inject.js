@@ -2579,6 +2579,7 @@
         try {
           await apiDelete(`/api/v1/documents/${d.id}`);
           sub.remove();
+          alert('✅ Đã xóa văn bản');
           loadPage(currentPage);
         } catch (e) { alert('❌ Xóa thất bại: ' + e.message); }
       };
@@ -2685,6 +2686,7 @@
           if (!confirm(`Xóa văn bản "${(doc.title || doc.originalFilename || '').substring(0, 60)}"?`)) return;
           try {
             await apiDelete(`/api/v1/documents/${docId}`);
+            alert('✅ Đã xóa văn bản');
             loadPage(currentPage);
           } catch (e) { alert('❌ Xóa thất bại: ' + e.message); }
         };

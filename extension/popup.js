@@ -135,6 +135,8 @@ function showMainView() {
   });
 
   // Check if chatbot is enabled for this user and show/hide the toggle
+  const chatbotRow = document.getElementById('chatbot-toggle-row');
+  if (chatbotRow) chatbotRow.style.display = 'none';
   checkChatbotStatus();
 }
 
@@ -149,14 +151,21 @@ async function checkChatbotStatus() {
     const res = await fetch(`${stored.config?.apiBase || DEFAULT_API_BASE}/api/v1/chatbot/status`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
+    if (!res.ok) return; // token lỗi/401 → giữ ẩn
     const data = await res.json();
     const chatbotEnabled = data?.data?.active || false;
 
+    const row = document.getElementById('chatbot-toggle-row');
     if (chatbotEnabled) {
-      document.getElementById('chatbot-toggle-row').style.display = 'flex';
+      if (row) row.style.display = 'flex';
+    } else {
+      // Tài khoản không có chatbot → ẩn row + bỏ check
+      if (row) row.style.display = 'none';
+      const cb = document.getElementById('toggle-chatbot');
+      if (cb) cb.checked = false;
     }
   } catch (e) {
-    // Chatbot not available
+    // Chatbot not available → giữ ẩn
   }
 }
 
@@ -299,6 +308,7 @@ async function handleLogout() {
 
   await clearAuth();
   showLoginView();
+  document.getElementById('chatbot-toggle-row').style.display = 'none';
 
   // Notify content script to remove floating button
   try {
