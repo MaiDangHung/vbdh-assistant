@@ -2296,7 +2296,7 @@
       sub.className = 'vbdh-sub-modal';
       sub.innerHTML = `
         <div class="vbdh-sub-overlay"></div>
-        <div class="vbdh-sub-container" style="max-width:780px">
+        <div class="vbdh-sub-container" style="max-width:1100px;width:95%">
           <div class="vbdh-sub-header">
             <h3>🤖 Trích xuất: ${(doc.title || doc.originalFilename || '').substring(0, 60)}</h3>
             <button class="vbdh-close">&times;</button>
@@ -2370,11 +2370,11 @@
         <tr>
           <td style="padding:6px;text-align:center"><input type="checkbox" class="vbdh-task-chk" data-idx="${i}" ${t.selected ? 'checked' : ''}></td>
           <td style="padding:6px;min-width:180px">
-            <textarea class="vbdh-task-title" data-idx="${i}" rows="1"
+            <textarea class="vbdh-task-title" data-idx="${i}" rows="3"
               style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px;resize:vertical">${escHtml(t.title)}</textarea>
           </td>
           <td style="padding:6px;min-width:220px">
-            <textarea class="vbdh-task-desc" data-idx="${i}" rows="1"
+            <textarea class="vbdh-task-desc" data-idx="${i}" rows="3"
               style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px;resize:vertical">${escHtml(t.description || '')}</textarea>
           </td>
           <td style="padding:6px">
