@@ -2675,7 +2675,7 @@
       const list = document.getElementById('vbdh-doc-list');
       if (list) list.innerHTML = '<div class="vbdh-loading"><div class="vbdh-spinner"></div><p>Đang tải...</p></div>';
       try {
-        const params = new URLSearchParams({ page, size: pageSize });
+        const params = new URLSearchParams({ page, size: pageSize, source: 'extension' });
         if (currentKeyword) params.append('keyword', currentKeyword);
         const [docsRes, countsRes] = await Promise.all([
           apiGet(`/api/v1/documents?${params}`),
