@@ -221,6 +221,21 @@
   // TASK MANAGEMENT PANEL
   // ===================================================================
 
+  // Download file văn bản qua blob kèm JWT (link trực tiếp sẽ 403 vì thiếu Authorization)
+  async function downloadDocFile(docId, fileName) {
+    try {
+      const res = await fetchWithRefresh(getApiBase() + `/api/v1/documents/${docId}/download`, { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName || `document-${docId}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { alert('❌ Tải file thất bại: ' + (e.message || e)); }
+  }
+
   async function apiGet(path) {
     const res = await fetchWithRefresh(getApiBase() + path, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -570,7 +585,7 @@
         } catch (e) { alert('❌ ' + e.message); }
         break;
       case 'download':
-        window.open(getApiBase() + `/api/v1/documents/${btn.dataset.docId}/download`, '_blank');
+        downloadDocFile(btn.dataset.docId);
         break;
       case 'history':
         openHistoryModal(id);
@@ -924,7 +939,7 @@
       }
 
       if (t.documentId) {
-        html += `<div class="vbdh-detail-section"><a href="${getApiBase()}/api/v1/documents/${t.documentId}/download" target="_blank" class="vbdh-link">📎 Tải file gốc</a></div>`;
+        html += `<div class="vbdh-detail-section"><a href="#" class="vbdh-link" data-dl-doc="${t.documentId}">📎 Tải file gốc</a></div>`;
       }
 
       // Progress history with files
@@ -1519,7 +1534,7 @@
   // Check if document already has tasks created
   async function checkDocHasTasks(apiUrl, documentId) {
     try {
-      const res = await fetchWithRefresh(`${apiUrl}/documents/task-counts`, { headers: getAuthHeaders() });
+      const res = await fetchWithRefresh(`${apiUrl.replace('/api/v1/ext', '/api/v1')}/documents/task-counts`, { headers: getAuthHeaders() });
       if (!res.ok) return false;
       const json = await res.json();
       const counts = json.data || {};
@@ -2118,7 +2133,10 @@
           <input id="vbdh-doc-search" type="text" placeholder="Tìm tiêu đề, số hiệu..." style="flex:1;padding:6px 10px;border:1px solid #d9d9d9;border-radius:6px;font-size:13px"/>
           <button id="vbdh-doc-search-btn" class="vbdh-btn" style="background:#1a73e8;color:#fff">Tìm</button>
           <button id="vbdh-doc-refresh-btn" class="vbdh-btn">&#x21ba; Làm mới</button>
+          <button id="vbdh-doc-upload-btn" class="vbdh-btn" style="background:#52c41a;color:#fff">⬆ Tải lên văn bản</button>
+          <input type="file" id="vbdh-doc-file-input" accept=".pdf,.docx,.doc,.jpg,.jpeg,.png" multiple style="display:none"/>
         </div>
+        <div id="vbdh-doc-upload-status" style="display:none;margin-bottom:12px;padding:8px 12px;background:#f0f5ff;border:1px solid #adc6ff;border-radius:6px;font-size:13px;color:#003a8c"></div>
         <div id="vbdh-doc-list"><div class="vbdh-loading"><div class="vbdh-spinner"></div><p>Đang tải...</p></div></div>
         <div id="vbdh-doc-pagination" style="display:flex;gap:6px;justify-content:center;margin-top:12px;align-items:center"></div>
       </div>`;
@@ -2493,8 +2511,7 @@
               ${d.description ? `<div class="vbdh-detail-row"><b>Mô tả:</b> ${d.description}</div>` : ''}
             </div>
             <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
-              <a href="${apiBase}/api/v1/documents/${d.id}/download" target="_blank"
-                 class="vbdh-btn" style="background:#1a73e8;color:#fff;text-decoration:none">↓ Tải file</a>
+              <button id="vbdh-detail-dl-btn" class="vbdh-btn" style="background:#1a73e8;color:#fff">↓ Tải file</button>
               <button id="vbdh-detail-extract-btn" class="vbdh-btn" style="background:#722ed1;color:#fff">
                 🤖 ${hasExtraction ? 'Xem trích xuất' : 'Trích xuất'}
               </button>
@@ -2505,6 +2522,7 @@
 
       sub.querySelector('.vbdh-sub-overlay').onclick = () => sub.remove();
       sub.querySelector('.vbdh-close').onclick = () => sub.remove();
+      sub.querySelector('#vbdh-detail-dl-btn').onclick = () => downloadDocFile(d.id, d.title || d.originalFilename);
       sub.querySelector('#vbdh-detail-extract-btn').onclick = () => { sub.remove(); doExtract(d); };
       sub.querySelector('#vbdh-detail-tasks-btn').onclick = () => { sub.remove(); showExistingTasks(d); };
       document.getElementById('vbdh-assistant-modal').appendChild(sub);
@@ -2631,6 +2649,44 @@
     const doSearch = () => { currentKeyword = searchInput ? searchInput.value.trim() : ''; loadPage(0); };
     if (searchBtn) searchBtn.onclick = doSearch;
     if (refreshBtn) refreshBtn.onclick = () => { if (searchInput) searchInput.value = ''; currentKeyword = ''; loadPage(0); };
+
+    // Upload văn bản từ máy — dùng endpoint extension (xử lý AI luôn)
+    const uploadBtn = document.getElementById('vbdh-doc-upload-btn');
+    const fileInput = document.getElementById('vbdh-doc-file-input');
+    const uploadStatus = document.getElementById('vbdh-doc-upload-status');
+    const showUpStatus = (msg, isError) => {
+      uploadStatus.style.display = 'block';
+      uploadStatus.style.background = isError ? '#fff1f0' : '#f0f5ff';
+      uploadStatus.style.borderColor = isError ? '#ffa39e' : '#adc6ff';
+      uploadStatus.style.color = isError ? '#cf1322' : '#003a8c';
+      uploadStatus.innerHTML = msg;
+    };
+    if (uploadBtn && fileInput) {
+      uploadBtn.onclick = () => fileInput.click();
+      fileInput.onchange = async () => {
+        const files = Array.from(fileInput.files || []);
+        if (!files.length) return;
+        showUpStatus(`⏳ Đang tải lên ${files.length} file...`, false);
+        uploadBtn.disabled = true;
+        try {
+          const fd = new FormData();
+          files.forEach(f => fd.append('files', f, f.name));
+          const res = await fetchWithRefresh(getApiUrl() + '/documents/upload', { method: 'POST', headers: getAuthHeaders(), body: fd });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const json = await res.json();
+          const results = json.data?.results || [];
+          const okCount = results.filter(r => !r.error).length;
+          const errHtml = results.filter(r => r.error).map(r => `<div>❌ ${r.fileName}: ${r.error}</div>`).join('');
+          showUpStatus(`✅ Đã tải lên ${okCount}/${files.length} file — AI đang xử lý.${errHtml}`, false);
+          loadPage(0);
+        } catch (e) {
+          showUpStatus('❌ Tải lên thất bại: ' + (e.message || e), true);
+        } finally {
+          uploadBtn.disabled = false;
+          fileInput.value = '';
+        }
+      };
+    }
     if (searchInput) searchInput.onkeydown = e => { if (e.key === 'Enter') doSearch(); };
 
     loadPage(0);
