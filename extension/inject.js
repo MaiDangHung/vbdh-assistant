@@ -2126,6 +2126,8 @@
   // DOCUMENTS PANEL (chỉ CHIEF/ADMIN)
   // ===================================================================
 
+  let docPanelDocs = [];
+
   async function loadDocumentsPanel(body) {
     body.innerHTML = `
       <div style="padding:16px">
@@ -2203,6 +2205,29 @@
       } catch { return tasks; }
     }
 
+    // AI suggest phòng ban cho task chưa match (giống autoSuggestDepartments web tbkl)
+    async function aiSuggestDepartments(doc, tasks) {
+      if (!tasks.length) return;
+      await ensureDepartmentsLoaded();
+      const deptNames = (extractState.departments || []).map(d => d.name);
+      for (let i = 0; i < tasks.length; i++) {
+        if (tasks[i].departmentId) continue;
+        try {
+          const res = await apiPost('/api/v1/ai/suggest-department', { title: tasks[i].title, departments: deptNames });
+          const sug = res.data;
+          if (sug?.department) {
+            const dept = (extractState.departments || []).find(d => d.name === sug.department);
+            tasks[i].departmentId = dept?.id || '';
+            tasks[i].departmentName = sug.department;
+            if (sug.priority && sug.priority !== 'BINH_THUONG') tasks[i].priority = sug.priority;
+          }
+        } catch { /* skip — giữ fallback của backend */ }
+      }
+      // Re-render nếu modal còn mở
+      const sub = document.getElementById('vbdh-extract-modal');
+      if (sub && extractTasks.length) renderExtractTasks(sub, extractTasks, doc);
+    }
+
     // ── extract & polling ─────────────────────────────────────────────────────
 
     async function doExtract(doc, reExtract = false) {
@@ -2224,6 +2249,7 @@
         }
         const tasks = await resolveDeptsBatch(parseExtractionTasks(data));
         updateExtractModal(doc, data, tasks, false, null);
+        aiSuggestDepartments(doc, tasks);
       } catch (e) {
         updateExtractModal(doc, null, [], false, '❌ Trích xuất thất bại: ' + e.message);
       }
@@ -2241,6 +2267,7 @@
           if (d?.status === 'extracted' && d?.extractionResult) {
             const tasks = await resolveDeptsBatch(parseExtractionTasks(d.extractionResult));
             updateExtractModal(doc, d.extractionResult, tasks, false, null);
+            aiSuggestDepartments(doc, tasks);
             return;
           }
           if (d?.status === 'error' || d?.status === 'pending') {
@@ -2332,23 +2359,23 @@
 
     function renderExtractTasks(sub, tasks, doc) {
       const bodyEl = document.getElementById('vbdh-extract-body');
-      const deptsCache = {};
+      const depts = (extractState.departments || []);
+      if (depts.length === 0) ensureDepartmentsLoaded().then(() => { if (extractState.departments.length) renderExtractTasks(sub, extractTasks, doc); });
 
+      const deptOptions = (sel) => depts.map(d =>
+        `<option value="${d.id}" ${sel === d.id ? 'selected' : ''}>${escHtml(d.name)}</option>`).join('');
+
+      // Cột theo đúng thứ tự web tbkl: ✅ | Tiêu đề | Mô tả | Ưu tiên | Hạn xử lý | Phòng ban (select) | ✕
       const rows = tasks.map((t, i) => `
         <tr>
           <td style="padding:6px;text-align:center"><input type="checkbox" class="vbdh-task-chk" data-idx="${i}" ${t.selected ? 'checked' : ''}></td>
-          <td style="padding:6px">
-            <input class="vbdh-task-title" data-idx="${i}" value="${escHtml(t.title)}"
-              style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px"/>
+          <td style="padding:6px;min-width:180px">
+            <textarea class="vbdh-task-title" data-idx="${i}" rows="1"
+              style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px;resize:vertical">${escHtml(t.title)}</textarea>
           </td>
-          <td style="padding:6px">
-            <input class="vbdh-task-desc" data-idx="${i}" value="${escHtml(t.description || '')}"
-              style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px"/>
-          </td>
-          <td style="padding:6px">
-            <input class="vbdh-task-dept" data-idx="${i}" value="${escHtml(t.departmentName || '')}"
-              placeholder="Tên phòng ban" style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:12px"/>
-            <input class="vbdh-task-dept-id" data-idx="${i}" type="hidden" value="${t.departmentId || ''}"/>
+          <td style="padding:6px;min-width:220px">
+            <textarea class="vbdh-task-desc" data-idx="${i}" rows="1"
+              style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px 6px;font-size:13px;resize:vertical">${escHtml(t.description || '')}</textarea>
           </td>
           <td style="padding:6px">
             <select class="vbdh-task-priority" data-idx="${i}" style="border:1px solid #d9d9d9;border-radius:4px;padding:4px;font-size:12px">
@@ -2361,21 +2388,34 @@
             <input class="vbdh-task-deadline" data-idx="${i}" type="date" value="${t.deadline ? t.deadline.substring(0,10) : ''}"
               style="border:1px solid #d9d9d9;border-radius:4px;padding:4px;font-size:12px"/>
           </td>
+          <td style="padding:6px;min-width:160px">
+            <select class="vbdh-task-dept" data-idx="${i}" style="width:100%;border:1px solid #d9d9d9;border-radius:4px;padding:4px;font-size:12px">
+              <option value="">-- Chọn phòng ban --</option>
+              ${deptOptions(t.departmentId)}
+            </select>
+          </td>
+          <td style="padding:6px;text-align:center">
+            <button class="vbdh-task-del" data-idx="${i}" title="Xóa dòng"
+              style="border:none;background:none;color:#ff4d4f;cursor:pointer;font-size:14px">&times;</button>
+          </td>
         </tr>`).join('');
 
       bodyEl.innerHTML = `
+        <p style="font-size:12px;color:#1890ff;background:#e6f7ff;padding:8px 12px;border-radius:4px;margin-bottom:8px">
+          ℹ️ Chọn nhiệm vụ, điền thông tin, rồi bấm "Tạo nhiệm vụ"</p>
         <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:4px">
           <thead>
             <tr style="background:#fafafa">
               <th style="padding:6px;width:36px"><input type="checkbox" id="vbdh-chk-all" checked title="Chọn tất cả"></th>
               <th style="padding:6px;text-align:left">Tiêu đề</th>
               <th style="padding:6px;text-align:left">Mô tả</th>
-              <th style="padding:6px;text-align:left">Phòng ban</th>
               <th style="padding:6px;text-align:left;white-space:nowrap">Ưu tiên</th>
               <th style="padding:6px;text-align:left;white-space:nowrap">Hạn xử lý</th>
+              <th style="padding:6px;text-align:left">Phòng ban</th>
+              <th style="padding:6px;width:32px"></th>
             </tr>
           </thead>
-          <tbody>${rows}</tbody>
+          <tbody id="vbdh-extract-tbody">${rows}</tbody>
         </table>`;
 
       // Chọn tất cả
@@ -2386,9 +2426,14 @@
       bodyEl.querySelectorAll('.vbdh-task-chk').forEach(c => c.onchange = e => { extractTasks[+c.dataset.idx].selected = e.target.checked; });
       bodyEl.querySelectorAll('.vbdh-task-title').forEach(i => i.oninput = e => { extractTasks[+i.dataset.idx].title = e.target.value; });
       bodyEl.querySelectorAll('.vbdh-task-desc').forEach(i => i.oninput = e => { extractTasks[+i.dataset.idx].description = e.target.value; });
-      bodyEl.querySelectorAll('.vbdh-task-dept').forEach(i => i.oninput = e => { extractTasks[+i.dataset.idx].departmentName = e.target.value; extractTasks[+i.dataset.idx].departmentId = ''; });
+      bodyEl.querySelectorAll('.vbdh-task-dept').forEach(sl => sl.onchange = e => { extractTasks[+sl.dataset.idx].departmentId = e.target.value; });
       bodyEl.querySelectorAll('.vbdh-task-priority').forEach(s => s.onchange = e => { extractTasks[+s.dataset.idx].priority = e.target.value; });
       bodyEl.querySelectorAll('.vbdh-task-deadline').forEach(i => i.onchange = e => { extractTasks[+i.dataset.idx].deadline = e.target.value; });
+      bodyEl.querySelectorAll('.vbdh-task-del').forEach(b => b.onclick = () => {
+        extractTasks.splice(+b.dataset.idx, 1);
+        extractTasks.forEach((t, i) => t.idx = i);
+        renderExtractTasks(sub, extractTasks, doc);
+      });
     }
 
     function escHtml(s) { return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -2562,6 +2607,7 @@
 
       // Gán task count vào doc object để dùng trong getDocActions
       const docsWithCount = docs.map(d => ({ ...d, _taskCount: taskCounts?.[d.id] || 0 }));
+      docPanelDocs = docs;
 
       const rows = docsWithCount.map(d => {
         const color = docStatusColor[d.status] || '#999';
@@ -2690,6 +2736,14 @@
     if (searchInput) searchInput.onkeydown = e => { if (e.key === 'Enter') doSearch(); };
 
     loadPage(0);
+
+    // Auto-poll khi có văn bản đang processing/extracting (giống web tbkl)
+    let pollTimer = null;
+    setInterval(() => {
+      const hasProcessing = (docPanelDocs || []).some(d => d.status === 'processing' || d.status === 'extracting');
+      if (hasProcessing && !pollTimer) pollTimer = setInterval(() => loadPage(currentPage), 3000);
+      else if (!hasProcessing && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }, 4000);
   }
 
   // ===== CSS =====
