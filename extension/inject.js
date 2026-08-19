@@ -2564,6 +2564,7 @@
                 🤖 ${hasExtraction ? 'Xem trích xuất' : 'Trích xuất'}
               </button>
               <button id="vbdh-detail-tasks-btn" class="vbdh-btn" style="display:none">📋 Xem nhiệm vụ</button>
+              <button id="vbdh-detail-delete-btn" class="vbdh-btn" style="background:#ff4d4f;color:#fff">🗑️ Xóa văn bản</button>
             </div>
           </div>
         </div>`;
@@ -2573,6 +2574,18 @@
       sub.querySelector('#vbdh-detail-dl-btn').onclick = () => downloadDocFile(d.id, d.title || d.originalFilename);
       sub.querySelector('#vbdh-detail-extract-btn').onclick = () => { sub.remove(); doExtract(d); };
       sub.querySelector('#vbdh-detail-tasks-btn').onclick = () => { sub.remove(); showExistingTasks(d); };
+      sub.querySelector('#vbdh-detail-delete-btn').onclick = async () => {
+        if (!confirm(`Xóa văn bản "${(d.title || d.originalFilename || '').substring(0, 60)}"?`)) return;
+        try {
+          const res = await fetchWithRefresh(`${getApiUrl()}/documents/${d.id}`, { method: 'DELETE', headers: getAuthHeaders() });
+          if (!res.ok) {
+            const j = await res.json().catch(() => ({}));
+            throw new Error(j.message || j.error || 'HTTP ' + res.status);
+          }
+          sub.remove();
+          loadPage(currentPage);
+        } catch (e) { alert('❌ Xóa thất bại: ' + e.message); }
+      };
 
       // Đã tạo NV → ẩn nút trích xuất, chỉ cho xem nhiệm vụ đã tạo
       (async () => {
@@ -2587,6 +2600,8 @@
             const tkBtn = sub.querySelector('#vbdh-detail-tasks-btn');
             if (exBtn) exBtn.style.display = 'none';
             if (tkBtn) tkBtn.style.display = '';
+            const dlBtn = sub.querySelector('#vbdh-detail-delete-btn');
+            if (dlBtn) { dlBtn.disabled = true; dlBtn.title = 'Đã có nhiệm vụ — không xóa được'; }
           }
         } catch { /* giữ mặc định */ }
       })();
@@ -2610,6 +2625,7 @@
           <button class="vbdh-btn vbdh-btn-sm vbdh-extract-btn" data-id="${d.id}"
             style="background:#722ed1;color:#fff" ${isProcessing ? 'disabled' : ''}>${extractLabel}</button>
           <button class="vbdh-btn vbdh-btn-sm vbdh-detail-btn" data-id="${d.id}">Chi tiết</button>
+          <button class="vbdh-btn vbdh-btn-sm vbdh-delete-btn" data-id="${d.id}" title="${d._taskCount ? 'Đã có nhiệm vụ — không xóa được' : 'Xóa văn bản'}" ${d._taskCount ? 'disabled' : ''}>🗑️</button>
         </div>`;
     }
 
@@ -2663,6 +2679,22 @@
           if (!doc) return;
           if (doc._taskCount) { showExistingTasks(doc); return; }
           doExtract(doc, false);
+        };
+      });
+      list.querySelectorAll('.vbdh-delete-btn').forEach(btn => {
+        btn.onclick = async () => {
+          const docId = btn.dataset.id;
+          const doc = docsWithCount.find(d => d.id === docId);
+          if (!doc) return;
+          if (!confirm(`Xóa văn bản "${(doc.title || doc.originalFilename || '').substring(0, 60)}"?`)) return;
+          try {
+            const res = await fetchWithRefresh(`${getApiUrl()}/documents/${docId}`, { method: 'DELETE', headers: getAuthHeaders() });
+            if (!res.ok) {
+              const j = await res.json().catch(() => ({}));
+              throw new Error(j.message || j.error || 'HTTP ' + res.status);
+            }
+            loadPage(currentPage);
+          } catch (e) { alert('❌ Xóa thất bại: ' + e.message); }
         };
       });
       list.querySelectorAll('.vbdh-detail-btn').forEach(btn => {
