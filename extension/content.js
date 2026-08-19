@@ -50,7 +50,14 @@
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'VBDH_AUTH_CHANGED') {
-      refreshAuth();
+      refreshAuth().then((stored) => {
+        if (!stored.auth || !stored.auth.token) {
+          // Đã đăng xuất → dọn mọi UI còn tồn đọng trong trang
+          ['vbdh-chatbot-script', 'vbdh-chatbot-btn', 'vbdh-chatbot-panel', 'vbdh-assistant-modal']
+            .forEach((id) => { const el = document.getElementById(id); if (el) el.remove(); });
+          document.body.style.overflow = '';
+        }
+      });
     }
   });
 

@@ -302,10 +302,12 @@ async function handleLogout() {
 
   // Notify content script to remove floating button
   try {
-    const [tab] = await chrome.tabs.query({ url: 'https://qlvbdh.danang.gov.vn/*' });
-    if (tab) {
-      chrome.tabs.sendMessage(tab.id, { type: 'VBDH_AUTH_CHANGED' });
-    }
+    const tabs = await chrome.tabs.query({
+      url: ['https://qlvbdh.danang.gov.vn/*', 'https://tbklhoatien.danangsite.com.vn/*'],
+    });
+    tabs.forEach((tab) => {
+      try { chrome.tabs.sendMessage(tab.id, { type: 'VBDH_AUTH_CHANGED' }); } catch (e) { /* ignore */ }
+    });
   } catch (e) { /* ignore */ }
 }
 

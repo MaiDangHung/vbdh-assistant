@@ -105,21 +105,9 @@
   // ===== TOGGLE MODAL =====
 
   function toggleVbdhModal() {
+    // Luôn dựng lại modal theo role HIỆN TẠI (tránh stale tabs sau khi đổi tài khoản)
     const existingModal = document.getElementById('vbdh-assistant-modal');
-    if (existingModal) {
-      const willShow = existingModal.style.display === 'none';
-      existingModal.style.display = willShow ? 'flex' : 'none';
-      document.body.style.overflow = willShow ? 'hidden' : '';
-      if (willShow) {
-        // Switch to tasks tab if not admin
-        if (!isAdminOrLeader) {
-          switchTab('tasks');
-        } else {
-          window.__vbdhRefresh && window.__vbdhRefresh();
-        }
-      }
-      return;
-    }
+    if (existingModal) existingModal.remove();
 
     const modal = document.createElement('div');
     modal.id = 'vbdh-assistant-modal';
@@ -157,6 +145,10 @@
 
     document.body.appendChild(modal);
     document.body.style.overflow = 'hidden';
+
+    // Tab mặc định theo role: STAFF/DEPT_HEAD → Nhiệm vụ; leader → Trích xuất
+    if (!isAdminOrLeader) switchTab('tasks');
+    else window.__vbdhRefresh && window.__vbdhRefresh();
 
     const closeModal = () => {
       modal.style.display = 'none';
