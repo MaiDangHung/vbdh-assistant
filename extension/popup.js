@@ -51,7 +51,7 @@ function loadStorage() {
             username: result.vbdh_username || '',
           },
           showFloating: result.vbdh_show_floating !== false,
-          showChatbot: result.vbdh_show_chatbot !== false,
+          showChatbot: result.vbdh_show_chatbot === true,
         });
       }
     );
@@ -131,7 +131,7 @@ function showMainView() {
   const stored = loadStorage();
   stored.then((s) => {
     document.getElementById('toggle-floating').checked = s.showFloating;
-    document.getElementById('toggle-chatbot').checked = s.showChatbot;
+    document.getElementById('toggle-chatbot').checked = false; // mặc định KHÔNG checked sau đăng nhập
   });
 
   // Check if chatbot is enabled for this user and show/hide the toggle
@@ -158,6 +158,8 @@ async function checkChatbotStatus() {
     const row = document.getElementById('chatbot-toggle-row');
     if (chatbotEnabled) {
       if (row) row.style.display = 'flex';
+      const cb = document.getElementById('toggle-chatbot');
+      if (cb) cb.checked = stored.config?.showChatbot === true;
     } else {
       // Tài khoản không có chatbot → ẩn row + bỏ check
       if (row) row.style.display = 'none';
